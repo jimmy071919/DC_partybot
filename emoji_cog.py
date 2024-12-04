@@ -151,7 +151,7 @@ class Emoji(commands.Cog):
                 return
                 
             emojis = self.get_recommended_emojis(message.content)
-            if emojis and random.random() < 0.3:  # 30% 機率回應
+            if emojis and random.random() < 0.9:  # 30% 機率回應
                 await message.add_reaction(random.choice(emojis))
         except Exception as e:
             self.logger.error(f"處理訊息表情符號時發生錯誤：{str(e)}")

@@ -39,14 +39,19 @@ def load_token():
 def load_cogs(bot):
     """載入所有 Cog 擴展"""
     success_count = 0
-    for filename in os.listdir("./"):
-        if filename.endswith("_cog.py"):
-            try:
-                asyncio.run(bot.load_extension(filename[:-3]))
-                logger.info(f"已載入擴展: {filename[:-3]}")
-                success_count += 1
-            except Exception as e:
-                logger.error(f"載入擴展 {filename[:-3]} 時發生錯誤: {str(e)}", exc_info=True)
+    cogs = [
+        'music_cog',
+        'emoji_cog',
+        'utility_cog'
+    ]
+    
+    for cog in cogs:
+        try:
+            asyncio.run(bot.load_extension(cog))
+            logger.info(f"已載入擴展: {cog}")
+            success_count += 1
+        except Exception as e:
+            logger.error(f"載入擴展 {cog} 時發生錯誤: {str(e)}", exc_info=True)
     return success_count
 
 async def check_ffmpeg():
