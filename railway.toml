@@ -1,5 +1,6 @@
 [build]
-builder = "nixpacks"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [nixpacks]
 setup = ["apt-get update", "apt-get install -y ffmpeg"]
