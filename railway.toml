@@ -1,0 +1,16 @@
+[build]
+builder = "nixpacks"
+
+[[build.steps]]
+name = "Install FFMPEG"
+command = "apt-get update && apt-get install -y ffmpeg python3-pip"
+
+[nixpacks]
+install = ["ffmpeg"]
+
+[deploy]
+startCommand = "python main.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/"
+healthcheckTimeout = 100
