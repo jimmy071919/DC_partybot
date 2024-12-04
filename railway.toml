@@ -5,6 +5,6 @@ builder = "nixpacks"
 setup = ["apt-get update", "apt-get install -y ffmpeg"]
 
 [deploy]
-startCommand = "python main.py"
+startCommand = "apt-get update && apt-get install -y ffmpeg && python main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
