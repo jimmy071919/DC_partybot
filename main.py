@@ -36,35 +36,22 @@ def load_token():
     logger.debug(f"Token 長度: {len(token)}, 開頭: {token[:5]}...")
     return token
 
-def load_cogs(bot):
-    """載入所有 Cog 擴展"""
-    success_count = 0
-    cogs = [
-        'music_cog',
-        'emoji_cog',
-        'utility_cog'
-    ]
-    
-    for cog in cogs:
-        try:
-            asyncio.run(bot.load_extension(cog))
-            logger.info(f"已載入擴展: {cog}")
-            success_count += 1
-        except Exception as e:
-            logger.error(f"載入擴展 {cog} 時發生錯誤: {str(e)}", exc_info=True)
-    return success_count
-
 async def check_ffmpeg():
     """檢查 FFMPEG 是否可用"""
     try:
         import subprocess
-        await asyncio.create_subprocess_exec(
+        process = await asyncio.create_subprocess_exec(
             'ffmpeg', '-version',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        logger.info("FFMPEG 檢查成功：已正確安裝")
-        return True
+        stdout, stderr = await process.communicate()
+        if process.returncode == 0:
+            logger.info("FFMPEG 檢查成功：已正確安裝")
+            return True
+        else:
+            logger.error(f"FFMPEG 檢查失敗: {stderr.decode()}")
+            return False
     except Exception as e:
         logger.error(f"FFMPEG 檢查失敗: {str(e)}")
         return False
@@ -73,16 +60,26 @@ class PartyBot(commands.Bot):
     async def setup_hook(self):
         """在機器人啟動前的初始化設置"""
         try:
-            # 先載入所有 cog
-            for filename in os.listdir("./"):
-                if filename.endswith("_cog.py"):
-                    try:
-                        await self.load_extension(filename[:-3])
-                        logger.info(f"已載入擴展: {filename[:-3]}")
-                    except Exception as e:
-                        logger.error(f"載入擴展 {filename[:-3]} 時發生錯誤: {str(e)}", exc_info=True)
+            # 檢查 FFMPEG
+            if not await check_ffmpeg():
+                logger.error("FFMPEG 未正確安裝，音樂功能可能無法使用")
+            
+            # 載入所有 cog
+            cog_list = [
+                'music_cog',
+                'emoji_cog',
+                'utility_cog',
+                'utils_cog'
+            ]
+            
+            for cog in cog_list:
+                try:
+                    await self.load_extension(cog)
+                    logger.info(f"已載入擴展: {cog}")
+                except Exception as e:
+                    logger.error(f"載入擴展 {cog} 時發生錯誤: {str(e)}", exc_info=True)
 
-            # 然後同步指令
+            # 同步指令
             logger.info("正在同步指令...")
             commands = await self.tree.sync()
             logger.info(f"成功同步 {len(commands)} 個指令！")
@@ -110,9 +107,6 @@ async def main():
     # 初始化機器人
     intents = discord.Intents.all()
     bot = PartyBot(command_prefix="!", intents=intents)
-    
-    # 檢查必要組件
-    await check_ffmpeg()
     
     try:
         logger.info("正在啟動機器人...")
