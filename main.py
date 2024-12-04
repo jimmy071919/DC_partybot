@@ -72,11 +72,17 @@ class PartyBot(commands.Bot):
                 'utils_cog'
             ]
             
+            loaded_commands = set()  # 用於追蹤已載入的命令
+            
             for cog in cog_list:
                 try:
                     await self.load_extension(cog)
                     logger.info(f"已載入擴展: {cog}")
                 except Exception as e:
+                    if isinstance(e, commands.errors.ExtensionFailed):
+                        if "CommandAlreadyRegistered" in str(e):
+                            logger.warning(f"擴展 {cog} 中的某些命令已經註冊")
+                            continue
                     logger.error(f"載入擴展 {cog} 時發生錯誤: {str(e)}", exc_info=True)
 
             # 同步指令
@@ -84,8 +90,14 @@ class PartyBot(commands.Bot):
             commands = await self.tree.sync()
             logger.info(f"成功同步 {len(commands)} 個指令！")
             
-            logger.info("\n已註冊的指令：")
+            # 移除重複的命令
+            unique_commands = {}
             for cmd in self.tree.get_commands():
+                if cmd.name not in unique_commands:
+                    unique_commands[cmd.name] = cmd
+            
+            logger.info("\n已註冊的指令：")
+            for cmd in unique_commands.values():
                 logger.info(f"- /{cmd.name}: {cmd.description}")
         except Exception as e:
             logger.error(f"同步指令時發生錯誤: {str(e)}", exc_info=True)

@@ -19,7 +19,16 @@ restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 
 [phases.setup]
-nixPkgs = ["ffmpeg", "opus", "gcc", "python3-dev", "make"]
+nixPkgs = []
+aptPkgs = [
+    "ffmpeg",
+    "opus-tools",
+    "libffi-dev",
+    "libnacl-dev",
+    "python3-dev",
+    "build-essential",
+    "pkg-config"
+]
 
 [phases.build]
 cmds = [
