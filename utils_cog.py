@@ -5,53 +5,90 @@ import random
 import json
 from datetime import datetime, timedelta
 from config import REMINDERS_DATA_PATH
+import logging
 
 class Utils(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.tree = bot.tree
         self.reminders = {}
+        self.logger = logging.getLogger(__name__)
         self.load_reminders()
 
     def cog_load(self):
+        """當 Cog 被載入時執行"""
         self.check_reminders.start()
+        self.logger.info("Utils Cog 已載入")
 
     def cog_unload(self):
+        """當 Cog 被卸載時執行"""
         self.check_reminders.cancel()
+        self.logger.info("Utils Cog 已卸載")
 
     def load_reminders(self):
+        """載入提醒事項"""
         try:
             with open(REMINDERS_DATA_PATH, 'r', encoding='utf-8') as f:
                 self.reminders = json.load(f)
+            self.logger.info(f"已載入 {len(self.reminders)} 個提醒事項")
         except FileNotFoundError:
+            self.logger.warning(f"找不到提醒事項檔案：{REMINDERS_DATA_PATH}")
+            self.reminders = {}
+        except json.JSONDecodeError:
+            self.logger.error("提醒事項檔案格式錯誤")
             self.reminders = {}
 
     def save_reminders(self):
-        with open(REMINDERS_DATA_PATH, 'w', encoding='utf-8') as f:
-            json.dump(self.reminders, f, ensure_ascii=False, indent=2)
+        """儲存提醒事項"""
+        try:
+            with open(REMINDERS_DATA_PATH, 'w', encoding='utf-8') as f:
+                json.dump(self.reminders, f, ensure_ascii=False, indent=2)
+            self.logger.info("提醒事項已儲存")
+        except Exception as e:
+            self.logger.error(f"儲存提醒事項時發生錯誤：{str(e)}")
 
     @tasks.loop(seconds=60)
     async def check_reminders(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if current_time in self.reminders:
-            for reminder in self.reminders[current_time]:
-                channel = self.bot.get_channel(reminder["channel_id"])
-                if channel:
-                    await channel.send(f"<@{reminder['user_id']}> 提醒：{reminder['message']}")
-            del self.reminders[current_time]
-            self.save_reminders()
+        """檢查提醒事項"""
+        try:
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if current_time in self.reminders:
+                for reminder in self.reminders[current_time]:
+                    try:
+                        channel = self.bot.get_channel(reminder["channel_id"])
+                        if channel:
+                            await channel.send(
+                                f"<@{reminder['user_id']}> 提醒：{reminder['message']}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"找不到頻道：{reminder['channel_id']}"
+                            )
+                    except Exception as e:
+                        self.logger.error(f"發送提醒時發生錯誤：{str(e)}")
+                del self.reminders[current_time]
+                self.save_reminders()
+        except Exception as e:
+            self.logger.error(f"檢查提醒事項時發生錯誤：{str(e)}")
 
     @app_commands.command(name="random", description="從語音頻道中隨機抽選一個人")
     async def random_pick(self, interaction: discord.Interaction):
+        """從語音頻道中隨機抽選一個人"""
         if not interaction.user.voice:
-            await interaction.response.send_message("你必須先加入語音頻道！", ephemeral=True)
+            await interaction.response.send_message(
+                "你必須先加入語音頻道！",
+                ephemeral=True
+            )
             return
         
         voice_channel = interaction.user.voice.channel
         members = [member for member in voice_channel.members if not member.bot]
         
         if not members:
-            await interaction.response.send_message("語音頻道中沒有其他成員！", ephemeral=True)
+            await interaction.response.send_message(
+                "語音頻道中沒有其他成員！",
+                ephemeral=True
+            )
             return
         
         chosen_one = random.choice(members)
@@ -67,22 +104,35 @@ class Utils(commands.Cog):
 
     @app_commands.command(name="roll", description="擲骰子 (預設 1-100)")
     async def roll(self, interaction: discord.Interaction, max_number: int = 100):
+        """擲骰子"""
         if max_number < 1:
-            await interaction.response.send_message("請輸入大於 0 的數字！", ephemeral=True)
+            await interaction.response.send_message(
+                "請輸入大於 0 的數字！",
+                ephemeral=True
+            )
             return
         
         result = random.randint(1, max_number)
-        await interaction.response.send_message(f"🎲 {interaction.user.display_name} 擲出了 **{result}** 點！")
+        await interaction.response.send_message(
+            f"🎲 {interaction.user.display_name} 擲出了 **{result}** 點！"
+        )
 
     @app_commands.command(name="poll", description="建立投票")
     async def poll(self, interaction: discord.Interaction, question: str, options: str):
+        """建立投票"""
         option_list = [opt.strip() for opt in options.split(',')]
         
         if len(option_list) < 2:
-            await interaction.response.send_message("至少需要2個選項！", ephemeral=True)
+            await interaction.response.send_message(
+                "至少需要2個選項！",
+                ephemeral=True
+            )
             return
         elif len(option_list) > 20:
-            await interaction.response.send_message("最多只能有20個選項！", ephemeral=True)
+            await interaction.response.send_message(
+                "最多只能有20個選項！",
+                ephemeral=True
+            )
             return
         
         embed = discord.Embed(
@@ -109,20 +159,31 @@ class Utils(commands.Cog):
 
     @app_commands.command(name="clear", description="清除指定數量的訊息")
     async def clear(self, interaction: discord.Interaction, amount: int = 5):
+        """清除指定數量的訊息"""
         if not interaction.user.guild_permissions.manage_messages:
-            await interaction.response.send_message("你沒有權限執行此指令！", ephemeral=True)
+            await interaction.response.send_message(
+                "你沒有權限執行此指令！",
+                ephemeral=True
+            )
             return
         
         if amount < 1 or amount > 100:
-            await interaction.response.send_message("請輸入 1-100 之間的數字！", ephemeral=True)
+            await interaction.response.send_message(
+                "請輸入 1-100 之間的數字！",
+                ephemeral=True
+            )
             return
         
         await interaction.response.defer()
         deleted = await interaction.channel.purge(limit=amount)
-        await interaction.followup.send(f"已清除 {len(deleted)} 則訊息！", ephemeral=True)
+        await interaction.followup.send(
+            f"已清除 {len(deleted)} 則訊息！",
+            ephemeral=True
+        )
 
     @app_commands.command(name="userinfo", description="顯示用戶資訊")
     async def userinfo(self, interaction: discord.Interaction, member: discord.Member = None):
+        """顯示用戶資訊"""
         if member is None:
             member = interaction.user
         
@@ -141,8 +202,12 @@ class Utils(commands.Cog):
 
     @app_commands.command(name="remind", description="設定提醒")
     async def set_reminder(self, interaction: discord.Interaction, minutes: int, message: str):
+        """設定提醒"""
         if minutes <= 0:
-            await interaction.response.send_message("請輸入大於 0 的分鐘數！", ephemeral=True)
+            await interaction.response.send_message(
+                "請輸入大於 0 的分鐘數！",
+                ephemeral=True
+            )
             return
         
         remind_time = datetime.now() + timedelta(minutes=minutes)
@@ -165,4 +230,5 @@ class Utils(commands.Cog):
         )
 
 async def setup(bot):
+    """設置 Utils cog"""
     await bot.add_cog(Utils(bot))
