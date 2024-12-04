@@ -1,11 +1,14 @@
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+builder = "nixpacks"
 
 [nixpacks]
-setup = ["apt-get update", "apt-get install -y ffmpeg"]
+setup = [
+    "apt-get update",
+    "apt-get install -y ffmpeg opus-tools",
+    "python -m pip install --upgrade pip"
+]
 
 [deploy]
-startCommand = "apt-get update && apt-get install -y ffmpeg && python main.py"
+startCommand = "python main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

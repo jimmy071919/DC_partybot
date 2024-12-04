@@ -1,7 +1,0 @@
-.git
-.env
-.cache
-__pycache__
-*.pyc
-.DS_Store
-discord_bot.log
