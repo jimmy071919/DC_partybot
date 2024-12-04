@@ -1,8 +1,0 @@
-app = "dc-partybot"
-primary_region = "nrt"  # Tokyo region for better latency in Asia
-
-[build]
-  dockerfile = "Dockerfile"
-
-[env]
-  PYTHONUNBUFFERED = "1"
