@@ -1,6 +1,13 @@
 [build]
 builder = "nixpacks"
 
+[nixpacks]
+setup = [
+    "apt-get update",
+    "apt-get install -y ffmpeg opus-tools libffi-dev libnacl-dev python3-dev",
+    "python -m pip install --upgrade pip"
+]
+
 [phases.setup]
 nixPkgs = [
     "ffmpeg",
@@ -10,6 +17,12 @@ aptPkgs = [
     "ffmpeg",
     "opus-tools",
     "python3-dev"
+]
+
+[phases.build]
+cmds = [
+    "which ffmpeg",
+    "ffmpeg -version"
 ]
 
 [deploy]

@@ -64,10 +64,25 @@ class Music(commands.Cog):
         # 檢查 ffmpeg 是否存在於系統中
         ffmpeg_path = shutil.which('ffmpeg')
         if not ffmpeg_path:
-            self.logger.error("找不到 ffmpeg，音樂功能將無法使用")
-            raise RuntimeError("找不到 ffmpeg，請確保已正確安裝")
-        else:
-            self.logger.info(f"找到 ffmpeg: {ffmpeg_path}")
+            # 嘗試在常見路徑中尋找 ffmpeg
+            common_paths = [
+                '/usr/bin/ffmpeg',
+                '/usr/local/bin/ffmpeg',
+                '/opt/ffmpeg/bin/ffmpeg'
+            ]
+            for path in common_paths:
+                if os.path.exists(path):
+                    ffmpeg_path = path
+                    break
+            
+            if not ffmpeg_path:
+                self.logger.error("找不到 ffmpeg，音樂功能將無法使用")
+                self.logger.warning("音樂功能將被禁用，但其他功能仍然可用")
+                self.disabled = True
+                return
+        
+        self.logger.info(f"找到 ffmpeg: {ffmpeg_path}")
+        self.disabled = False
         
         # 設定 yt-dlp 選項
         self.YDL_OPTIONS = {
@@ -77,7 +92,7 @@ class Music(commands.Cog):
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'ffmpeg_location': ffmpeg_path,  # 使用找到的 ffmpeg 路徑
+            'ffmpeg_location': ffmpeg_path,
             'prefer_ffmpeg': True,
             'keepvideo': False,
             'noplaylist': True,
