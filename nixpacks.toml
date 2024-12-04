@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = [
+    "ffmpeg",
+    "opus",
+    "python3",
+    "gcc",
+    "pkg-config"
+]
