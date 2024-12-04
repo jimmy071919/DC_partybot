@@ -1,13 +1,19 @@
-FROM python:3.9-slim
+FROM debian:bullseye
 
-WORKDIR /app
-
-# Install system dependencies
+# Install Python and other dependencies
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
     git \
-    gcc \
+    gcc-8 \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+
+# Set Python aliases
+RUN ln -s /usr/bin/python3 /usr/bin/python && \
+    ln -s /usr/bin/pip3 /usr/bin/pip
+
+WORKDIR /app
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
