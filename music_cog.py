@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 import os
 from dotenv import load_dotenv
 import logging
+import shutil
 
 # 載入環境變數
 load_dotenv()
@@ -54,24 +55,33 @@ class MusicQueue:
         return self.get_next()
 
 class Music(commands.Cog):
-    YDL_OPTIONS = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'ffmpeg_location': 'ffmpeg',
-        'prefer_ffmpeg': True,
-        'keepvideo': False,
-        'noplaylist': True,
-    }
-
     def __init__(self, bot):
         self.bot = bot
         self.queues = {}
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         self.logger = logging.getLogger(__name__)
+        
+        # 檢查 ffmpeg 是否存在於系統中
+        ffmpeg_path = shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            self.logger.error("找不到 ffmpeg，音樂功能將無法使用")
+            raise RuntimeError("找不到 ffmpeg，請確保已正確安裝")
+        else:
+            self.logger.info(f"找到 ffmpeg: {ffmpeg_path}")
+        
+        # 設定 yt-dlp 選項
+        self.YDL_OPTIONS = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'ffmpeg_location': ffmpeg_path,  # 使用找到的 ffmpeg 路徑
+            'prefer_ffmpeg': True,
+            'keepvideo': False,
+            'noplaylist': True,
+        }
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
