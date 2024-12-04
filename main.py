@@ -6,14 +6,23 @@ from dotenv import load_dotenv
 import os
 
 # 載入環境變數
-load_dotenv()
+load_dotenv(override=True)  # 確保重新載入環境變數
 
 # 檢查 token
 token = os.getenv("DISCORD_TOKEN")
 if not token:
     print("錯誤：找不到 DISCORD_TOKEN 環境變數")
     exit(1)
-print("Token 長度：", len(token))  # 不要輸出完整 token，只輸出長度
+
+# 添加 token 驗證檢查
+token = token.strip()  # 移除可能的空白字符
+if not token:
+    print("錯誤：DISCORD_TOKEN 是空的")
+    exit(1)
+print(f"Token 資訊：")
+print(f"- 長度: {len(token)}")
+print(f"- 開頭字符: {token[:5]}...")
+print(f"- 是否包含空格: {' ' in token}")
 
 # 初始化 Discord 機器人
 intents = discord.Intents.all()
