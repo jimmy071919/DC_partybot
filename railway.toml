@@ -4,7 +4,7 @@ builder = "nixpacks"
 [nixpacks]
 setup = [
     "apt-get update",
-    "apt-get install -y ffmpeg opus-tools",
+    "apt-get install -y ffmpeg opus-tools libffi-dev libnacl-dev python3-dev",
     "python -m pip install --upgrade pip"
 ]
 
@@ -12,3 +12,6 @@ setup = [
 startCommand = "python main.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+
+[phases.setup]
+nixPkgs = ["ffmpeg", "opus"]
