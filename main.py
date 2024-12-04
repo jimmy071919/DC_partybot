@@ -4,10 +4,16 @@ from discord import app_commands
 import asyncio
 from dotenv import load_dotenv
 import os
-from config import DISCORD_TOKEN
 
 # 載入環境變數
 load_dotenv()
+
+# 檢查 token
+token = os.getenv("DISCORD_TOKEN")
+if not token:
+    print("錯誤：找不到 DISCORD_TOKEN 環境變數")
+    exit(1)
+print("Token 長度：", len(token))  # 不要輸出完整 token，只輸出長度
 
 # 初始化 Discord 機器人
 intents = discord.Intents.all()
