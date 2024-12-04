@@ -58,7 +58,9 @@ class Music(commands.Cog):
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'ffmpeg_location': os.getenv('FFMPEG_PATH')
+            'ffmpeg_location': 'ffmpeg',  # 直接使用系統 ffmpeg
+            'prefer_ffmpeg': True,
+            'keepvideo': False
         }
         
         try:
@@ -71,7 +73,7 @@ class Music(commands.Cog):
                         print(f"播放錯誤：{error}")
                     asyncio.run_coroutine_threadsafe(self.play_next(guild_id), self.bot.loop)
                 
-                queue.voice_client.play(discord.FFmpegPCMAudio(url, executable=os.getenv('FFMPEG_PATH')), after=after_playing)
+                queue.voice_client.play(discord.FFmpegPCMAudio(url, executable='ffmpeg'), after=after_playing)
                 queue.is_playing = True
                 
                 if interaction:
