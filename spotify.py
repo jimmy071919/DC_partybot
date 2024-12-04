@@ -696,4 +696,4 @@ async def on_message(message):
             await message.add_reaction(random.choice(emojis))
 
 # 啟動機器人
-bot.run("MTMxMjA0MzQ2NjAxMTk2NzUyMA.GxyWUm.75EyCyxwUQDzPR-1Y-TWJLXws3ab9ZOsV5ALAY")
+bot.run("MTMxMjA0MzQ2NjAxMTk2NzUyMA.GGIKUu.3rJhLFuWLvkhaXwugQdakJi9RcrindZpXuBjPM")

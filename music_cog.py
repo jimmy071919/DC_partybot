@@ -7,6 +7,7 @@ import yt_dlp
 from googleapiclient.discovery import build
 import os
 from dotenv import load_dotenv
+import logging
 
 # 載入環境變數
 load_dotenv()
@@ -17,74 +18,149 @@ class MusicQueue:
         self.current = None
         self.voice_client = None
         self.is_playing = False
+        self.volume = 1.0  # 新增音量控制
+        self._loop = False  # 新增循環播放控制
+
+    @property
+    def is_empty(self):
+        return len(self.queue) == 0
+
+    @property
+    def loop(self):
+        return self._loop
+
+    @loop.setter
+    def loop(self, value: bool):
+        self._loop = value
 
     def add(self, song):
         self.queue.append(song)
 
     def get_next(self):
-        if self.queue:
-            return self.queue.pop(0)
-        return None
+        if not self.queue:
+            return None
+        if self._loop and self.current:
+            self.queue.append(self.current)
+        return self.queue.pop(0)
 
     def clear(self):
         self.queue.clear()
         self.current = None
+        self._loop = False
+
+    def skip(self):
+        if self.voice_client and self.voice_client.is_playing():
+            self.voice_client.stop()
+        return self.get_next()
 
 class Music(commands.Cog):
+    YDL_OPTIONS = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'ffmpeg_location': 'ffmpeg',
+        'prefer_ffmpeg': True,
+        'keepvideo': False,
+        'noplaylist': True,
+    }
+
     def __init__(self, bot):
         self.bot = bot
-        self.queues = {}  # 為每個伺服器建立獨立的播放佇列
-        self.tree = bot.tree
+        self.queues = {}
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        self.logger = logging.getLogger(__name__)
 
-    async def play_next(self, guild_id, interaction=None):
+    def get_queue(self, guild_id: int) -> MusicQueue:
+        """獲取或創建伺服器的音樂佇列"""
         if guild_id not in self.queues:
+            self.queues[guild_id] = MusicQueue()
+        return self.queues[guild_id]
+
+    async def ensure_voice_client(self, interaction: discord.Interaction) -> bool:
+        """確保機器人在語音頻道中"""
+        if not interaction.guild:
+            await interaction.response.send_message("這個指令只能在伺服器中使用！", ephemeral=True)
+            return False
+
+        if not interaction.user.voice:
+            await interaction.response.send_message("你必須先加入語音頻道！", ephemeral=True)
+            return False
+
+        queue = self.get_queue(interaction.guild_id)
+        if not queue.voice_client:
+            try:
+                queue.voice_client = await interaction.user.voice.channel.connect()
+            except Exception as e:
+                self.logger.error(f"無法連接到語音頻道: {str(e)}")
+                await interaction.response.send_message("無法連接到語音頻道，請稍後再試！", ephemeral=True)
+                return False
+
+        return True
+
+    async def play_next(self, guild_id: int, interaction: discord.Interaction = None):
+        """播放下一首歌曲"""
+        queue = self.get_queue(guild_id)
+        if not queue.voice_client:
             return
-        
-        queue = self.queues[guild_id]
-        
-        if not queue.queue:
+
+        if not queue.queue and not queue.loop:
             queue.is_playing = False
             queue.current = None
             return
-        
+
         next_song = queue.get_next()
+        if not next_song:
+            return
+
         queue.current = next_song
-        
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'ffmpeg_location': 'ffmpeg',  # 直接使用系統 ffmpeg
-            'prefer_ffmpeg': True,
-            'keepvideo': False
-        }
-        
+
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(self.YDL_OPTIONS) as ydl:
                 info = ydl.extract_info(next_song['url'], download=False)
                 url = info['url']
-                
+
                 def after_playing(error):
                     if error:
-                        print(f"播放錯誤：{error}")
-                    asyncio.run_coroutine_threadsafe(self.play_next(guild_id), self.bot.loop)
-                
-                queue.voice_client.play(discord.FFmpegPCMAudio(url, executable='ffmpeg'), after=after_playing)
-                queue.is_playing = True
-                
-                if interaction:
-                    title = html.unescape(next_song['title'])
+                        self.logger.error(f"播放錯誤：{error}")
                     asyncio.run_coroutine_threadsafe(
-                        interaction.channel.send(f"🎵 正在播放：{title}"),
+                        self.play_next(guild_id), 
                         self.bot.loop
                     )
-                
+
+                queue.voice_client.play(
+                    discord.FFmpegPCMAudio(url, executable='ffmpeg'),
+                    after=after_playing
+                )
+                queue.voice_client.source = discord.PCMVolumeTransformer(
+                    queue.voice_client.source,
+                    volume=queue.volume
+                )
+                queue.is_playing = True
+
+                if interaction and interaction.channel:
+                    title = html.unescape(next_song['title'])
+                    embed = discord.Embed(
+                        title="🎵 正在播放",
+                        description=title,
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="長度", 
+                        value=f"{info.get('duration_string', 'N/A')}"
+                    )
+                    embed.add_field(
+                        name="請求者", 
+                        value=next_song.get('requester', 'Unknown')
+                    )
+                    await interaction.channel.send(embed=embed)
+
         except Exception as e:
-            print(f"播放錯誤：{e}")
+            self.logger.error(f"播放錯誤：{str(e)}")
+            if interaction and interaction.channel:
+                await interaction.channel.send(f"播放時發生錯誤：{str(e)}")
             await self.play_next(guild_id, interaction)
 
     def search_youtube(self, query):
@@ -334,17 +410,34 @@ class Music(commands.Cog):
 
     @app_commands.command(name="leave", description="讓機器人離開語音頻道")
     async def leave(self, interaction: discord.Interaction):
-        if interaction.guild_id not in self.queues:
-            await interaction.response.send_message("機器人不在任何語音頻道內！", ephemeral=True)
-            return
-        
-        queue = self.queues[interaction.guild_id]
-        
-        if queue.voice_client:
-            await queue.voice_client.disconnect()
-            await interaction.response.send_message("機器人已離開語音頻道！")
-        else:
-            await interaction.response.send_message("機器人不在任何語音頻道內！", ephemeral=True)
+        """讓機器人離開語音頻道"""
+        try:
+            # 檢查機器人是否在語音頻道中
+            if not interaction.guild.voice_client:
+                await interaction.response.send_message("機器人不在任何語音頻道內！", ephemeral=True)
+                return
+
+            # 檢查用戶是否在同一個語音頻道
+            if not interaction.user.voice or interaction.user.voice.channel != interaction.guild.voice_client.channel:
+                await interaction.response.send_message("你必須在機器人所在的語音頻道內才能使用此命令！", ephemeral=True)
+                return
+
+            # 停止播放並清理隊列
+            if interaction.guild_id in self.queues:
+                queue = self.queues[interaction.guild_id]
+                if queue.voice_client and queue.voice_client.is_playing():
+                    queue.voice_client.stop()
+                queue.clear()
+                del self.queues[interaction.guild_id]
+
+            # 斷開連接
+            await interaction.guild.voice_client.disconnect()
+            await interaction.response.send_message("👋 機器人已離開語音頻道！")
+            
+        except Exception as e:
+            self.logger.error(f"離開語音頻道時發生錯誤：{str(e)}")
+            await interaction.response.send_message("離開語音頻道時發生錯誤，請稍後再試！", ephemeral=True)
 
 async def setup(bot):
+    """設置 Music cog"""
     await bot.add_cog(Music(bot))
