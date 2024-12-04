@@ -16,8 +16,12 @@ if not token:
     print("或者在本地開發時在 .env 文件中設置了 DISCORD_TOKEN")
     exit(1)
 
-# 添加 token 驗證檢查
-token = token.strip()  # 移除可能的空白字符
+# 清理 token
+token = token.strip()  # 移除空白字符
+if token.startswith('='): # 移除開頭的等號
+    token = token[1:]
+token = token.strip()  # 再次移除可能的空白
+
 if not token:
     print("錯誤：DISCORD_TOKEN 是空的")
     exit(1)
@@ -26,6 +30,7 @@ if not token:
 if not (token.startswith('MT') or token.startswith('NT')):
     print("警告：Discord Token 格式可能不正確")
     print("一般的 Bot Token 應該以 'MT' 或 'NT' 開頭")
+    print("目前的 Token 開頭為：", token[:5] + "...")
 
 print(f"Token 資訊：")
 print(f"- 長度: {len(token)}")
