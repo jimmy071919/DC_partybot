@@ -4,7 +4,16 @@ from discord import app_commands
 import json
 import random
 import requests
-from config import TENOR_API_KEY, TENOR_API_URL, EMOJI_DATA_PATH
+import os
+from dotenv import load_dotenv
+
+# 載入環境變數
+load_dotenv()
+
+# 設定 Tenor API
+TENOR_API_URL = os.getenv('TENOR_API_URL')
+TENOR_API_KEY = os.getenv('TENOR_API_KEY')
+EMOJI_DATA_PATH = os.getenv('EMOJI_DATA_PATH')
 
 class Emoji(commands.Cog):
     def __init__(self, bot):

@@ -2,7 +2,12 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import asyncio
+from dotenv import load_dotenv
+import os
 from config import DISCORD_TOKEN
+
+# 載入環境變數
+load_dotenv()
 
 # 初始化 Discord 機器人
 intents = discord.Intents.all()
@@ -35,7 +40,7 @@ async def setup():
 
 async def main():
     await setup()
-    await bot.start(DISCORD_TOKEN)
+    await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
     asyncio.run(main())

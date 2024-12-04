@@ -5,7 +5,11 @@ import asyncio
 import html
 import yt_dlp
 from googleapiclient.discovery import build
-from config import YOUTUBE_API_KEY, FFMPEG_PATH
+import os
+from dotenv import load_dotenv
+
+# 載入環境變數
+load_dotenv()
 
 class MusicQueue:
     def __init__(self):
@@ -31,6 +35,7 @@ class Music(commands.Cog):
         self.bot = bot
         self.queues = {}  # 為每個伺服器建立獨立的播放佇列
         self.tree = bot.tree
+        self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
 
     async def play_next(self, guild_id, interaction=None):
         if guild_id not in self.queues:
@@ -53,7 +58,7 @@ class Music(commands.Cog):
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'ffmpeg_location': FFMPEG_PATH
+            'ffmpeg_location': os.getenv('FFMPEG_PATH')
         }
         
         try:
@@ -66,7 +71,7 @@ class Music(commands.Cog):
                         print(f"播放錯誤：{error}")
                     asyncio.run_coroutine_threadsafe(self.play_next(guild_id), self.bot.loop)
                 
-                queue.voice_client.play(discord.FFmpegPCMAudio(url, executable=FFMPEG_PATH), after=after_playing)
+                queue.voice_client.play(discord.FFmpegPCMAudio(url, executable=os.getenv('FFMPEG_PATH')), after=after_playing)
                 queue.is_playing = True
                 
                 if interaction:
@@ -81,9 +86,7 @@ class Music(commands.Cog):
             await self.play_next(guild_id, interaction)
 
     def search_youtube(self, query):
-        youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-        
-        request = youtube.search().list(
+        request = self.youtube.search().list(
             part="snippet",
             q=query,
             type="video",
