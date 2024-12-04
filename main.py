@@ -68,6 +68,16 @@ async def setup():
 
 async def main():
     try:
+        # 檢查 FFMPEG 是否可用
+        import subprocess
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            print("FFMPEG 檢查成功：已正確安裝")
+        except subprocess.CalledProcessError:
+            print("警告：FFMPEG 可能未正確安裝")
+        except FileNotFoundError:
+            print("錯誤：找不到 FFMPEG，請確保已正確安裝")
+            
         await setup()
         print("正在啟動機器人...")
         await bot.start(token)  # 使用之前驗證過的 token 變數
