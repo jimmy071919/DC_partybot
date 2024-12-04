@@ -1,31 +1,22 @@
-FROM ubuntu:20.04
+FROM python:3.9-slim
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Asia/Taipei
-ENV PYTHONUNBUFFERED=1
+# 設置工作目錄
+WORKDIR /app
 
-# Install Python and other dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.9 \
-    python3.9-dev \
-    python3-pip \
+# 安裝系統依賴
+RUN apt-get update && apt-get install -y \
     git \
-    build-essential \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-# Upgrade pip and install wheel
-RUN python3.9 -m pip install --no-cache-dir --upgrade pip && \
-    python3.9 -m pip install --no-cache-dir wheel
-
-# Copy requirements first to leverage Docker cache
+# 複製依賴文件
 COPY requirements.txt .
-RUN python3.9 -m pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+# 安裝 Python 依賴
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 複製應用程式代碼
 COPY . .
 
-# Command to run the application
-CMD ["python3.9", "main.py"]
+# 運行機器人
+CMD ["python", "main.py"]

@@ -4,38 +4,48 @@ from discord import app_commands
 import asyncio
 from dotenv import load_dotenv
 import os
+import logging
+
+# 設置日誌
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('discord_bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # 載入環境變數
-load_dotenv(override=True)  # 確保重新載入環境變數
+load_dotenv(override=True)
 
 # 檢查 token
 token = os.getenv("DISCORD_TOKEN")
 if not token:
-    print("錯誤：找不到 DISCORD_TOKEN 環境變數")
-    print("請確保在 Railway 的 Variables 中設置了 DISCORD_TOKEN")
-    print("或者在本地開發時在 .env 文件中設置了 DISCORD_TOKEN")
+    logger.error("找不到 DISCORD_TOKEN 環境變數")
     exit(1)
 
 # 清理 token
-token = token.strip()  # 移除空白字符
-if token.startswith('='): # 移除開頭的等號
+token = token.strip()
+if token.startswith('='):
     token = token[1:]
-token = token.strip()  # 再次移除可能的空白
+token = token.strip()
 
 if not token:
-    print("錯誤：DISCORD_TOKEN 是空的")
+    logger.error("DISCORD_TOKEN 是空的")
     exit(1)
 
 # 驗證 token 格式
 if not (token.startswith('MT') or token.startswith('NT')):
-    print("警告：Discord Token 格式可能不正確")
-    print("一般的 Bot Token 應該以 'MT' 或 'NT' 開頭")
-    print("目前的 Token 開頭為：", token[:5] + "...")
+    logger.warning("Discord Token 格式可能不正確")
+    logger.warning("一般的 Bot Token 應該以 'MT' 或 'NT' 開頭")
+    logger.warning(f"目前的 Token 開頭為：{token[:5]}...")
 
-print(f"Token 資訊：")
-print(f"- 長度: {len(token)}")
-print(f"- 開頭字符: {token[:5]}...")
-print(f"- 是否包含空格: {' ' in token}")
+logger.info(f"Token 資訊：")
+logger.info(f"- 長度: {len(token)}")
+logger.info(f"- 開頭字符: {token[:5]}...")
+logger.info(f"- 是否包含空格: {' ' in token}")
 
 # 初始化 Discord 機器人
 intents = discord.Intents.all()
@@ -46,25 +56,32 @@ tree = bot.tree
 @bot.event
 async def on_ready():
     try:
-        print(f"正在同步指令...")
-        # 強制同步所有指令
+        logger.info(f"登入成功: {bot.user.name}")
+        logger.info("正在同步指令...")
         commands = await tree.sync()
-        print(f"成功同步 {len(commands)} 個指令！")
-        print(f"已登入為 {bot.user}")
+        logger.info(f"同步了 {len(commands)} 個指令")
         
         # 列出所有已註冊的指令
-        print("\n已註冊的指令：")
+        logger.info("\n已註冊的指令：")
         for cmd in tree.get_commands():
-            print(f"- /{cmd.name}: {cmd.description}")
+            logger.info(f"- /{cmd.name}: {cmd.description}")
             
     except Exception as e:
-        print(f"同步指令時發生錯誤：{str(e)}")
+        logger.error(f"同步指令時發生錯誤: {str(e)}", exc_info=True)
 
-async def setup():
-    # 載入所有 Cogs
-    await bot.load_extension('music_cog')
-    await bot.load_extension('emoji_cog')
-    await bot.load_extension('utils_cog')
+@bot.event
+async def on_error(event, *args, **kwargs):
+    logger.error(f"事件 {event} 發生錯誤", exc_info=True)
+
+# 設置 Cogs
+def setup():
+    for filename in os.listdir("./"):
+        if filename.endswith("_cog.py"):
+            try:
+                bot.load_extension(filename[:-3])
+                logger.info(f"已載入擴展: {filename[:-3]}")
+            except Exception as e:
+                logger.error(f"載入擴展 {filename[:-3]} 時發生錯誤: {str(e)}", exc_info=True)
 
 async def main():
     try:
@@ -72,23 +89,31 @@ async def main():
         import subprocess
         try:
             subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-            print("FFMPEG 檢查成功：已正確安裝")
+            logger.info("FFMPEG 檢查成功：已正確安裝")
         except subprocess.CalledProcessError:
-            print("警告：FFMPEG 可能未正確安裝")
+            logger.warning("FFMPEG 可能未正確安裝")
         except FileNotFoundError:
-            print("錯誤：找不到 FFMPEG，請確保已正確安裝")
+            logger.error("找不到 FFMPEG，請確保已正確安裝")
             
-        await setup()
-        print("正在啟動機器人...")
+        setup()
+        logger.info("正在啟動機器人...")
         await bot.start(token)  # 使用之前驗證過的 token 變數
     except discord.LoginFailure as e:
-        print(f"登入失敗！請檢查 Discord Token 是否正確")
-        print(f"錯誤信息: {str(e)}")
+        logger.error(f"登入失敗！請檢查 Discord Token 是否正確")
+        logger.error(f"錯誤信息: {str(e)}")
         exit(1)
     except Exception as e:
-        print(f"啟動時發生未預期的錯誤：{str(e)}")
-        print(f"錯誤類型：{type(e).__name__}")
-        exit(1)
+        logger.error(f"運行時發生錯誤: {str(e)}", exc_info=True)
+    finally:
+        await bot.close()
+
+def run_bot():
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("機器人正常關閉")
+    except Exception as e:
+        logger.error(f"運行時發生嚴重錯誤: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_bot()
