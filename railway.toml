@@ -4,8 +4,12 @@ builder = "nixpacks"
 [nixpacks]
 setup = [
     "apt-get update",
+    "apt-get install -y software-properties-common",
+    "add-apt-repository -y ppa:mc3man/trusty-media",
+    "apt-get update",
     "apt-get install -y ffmpeg opus-tools libffi-dev libnacl-dev python3-dev",
     "apt-get install -y build-essential",
+    "ln -s /usr/bin/ffmpeg /usr/local/bin/ffmpeg",
     "python -m pip install --upgrade pip"
 ]
 
@@ -20,5 +24,7 @@ nixPkgs = ["ffmpeg", "opus", "gcc", "python3-dev", "make"]
 [phases.build]
 cmds = [
     "which ffmpeg",
-    "ffmpeg -version"
+    "ffmpeg -version",
+    "ls -l /usr/bin/ffmpeg",
+    "ls -l /usr/local/bin/ffmpeg"
 ]

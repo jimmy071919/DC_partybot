@@ -102,7 +102,7 @@ class Utils(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="roll", description="擲骰子 (預設 1-100)")
+    @app_commands.command(name="dice_roll", description="擲骰子 (預設 1-100)")
     async def roll(self, interaction: discord.Interaction, max_number: int = 100):
         """擲骰子"""
         if max_number < 1:
