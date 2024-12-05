@@ -1,10 +1,7 @@
 [phases.setup]
 nixPkgs = [
-  "python39",
-  "python39Packages.pip",
-  "ffmpeg",
-  "opus",
-  "git"
+  "python39-full",
+  "ffmpeg"
 ]
 
 [phases.install]
