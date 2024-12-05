@@ -2,8 +2,11 @@
 nixPkgs = [
   "python39",
   "python39Packages.pip",
-  "python39Packages.setuptools",
-  "ffmpeg"
+  "python39Packages.setuptools"
+]
+aptPkgs = [
+  "ffmpeg",
+  "opus-tools"
 ]
 
 [phases.install]
