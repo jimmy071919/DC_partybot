@@ -20,31 +20,20 @@ logger = logging.getLogger(__name__)
 def load_token():
     """載入並驗證 Discord Token"""
     load_dotenv(override=True)
-    token = os.getenv("DISCORD_TOKEN")
+    token = os.getenv("DISCORD_TOKEN", "").strip()
     
     if not token:
         logger.error("找不到 DISCORD_TOKEN 環境變數或變數為空")
         return None
-    
-    # 清理 token
-    token = token.strip()
-    
-    # 移除可能的引號
-    if token.startswith('"') and token.endswith('"'):
-        token = token[1:-1]
-    if token.startswith("'") and token.endswith("'"):
-        token = token[1:-1]
-    
-    # 移除可能的等號前綴
+        
     if token.startswith('='):
         token = token[1:].strip()
-    
-    # 基本格式驗證
-    if len(token) < 50:  # Discord tokens 通常很長
-        logger.error("Discord Token 長度不足，可能無效")
-        return None
         
-    logger.debug(f"Token 長度: {len(token)}")
+    if not (token.startswith('MT') or token.startswith('NT')):
+        logger.warning("Discord Token 格式可能不正確")
+        logger.warning("一般的 Bot Token 應該以 'MT' 或 'NT' 開頭")
+        
+    logger.debug(f"Token 長度: {len(token)}, 開頭: {token[:5]}...")
     return token
 
 async def check_ffmpeg():
