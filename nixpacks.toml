@@ -1,6 +1,8 @@
 [phases.setup]
 nixPkgs = [
-  "python39-full",
+  "python39",
+  "python39Packages.pip",
+  "python39Packages.setuptools",
   "ffmpeg"
 ]
 
