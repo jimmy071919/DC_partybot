@@ -2,17 +2,13 @@
 nixPkgs = [
   "python39",
   "python39Packages.pip",
-  "python39Packages.setuptools"
-]
-aptPkgs = [
+  "python39Packages.setuptools",
   "ffmpeg",
   "opus-tools"
 ]
 
 [phases.install]
 cmds = [
-  "python -m ensurepip",
-  "python -m ensurepip --upgrade",
   "python -m pip install --upgrade pip setuptools wheel",
   "pip install -r requirements.txt"
 ]
