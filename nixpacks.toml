@@ -2,7 +2,10 @@
 providers = ["python"]
 nixPkgs = [
   "...",
-  "ffmpeg",
+  "ffmpeg"
+]
+
+aptPkgs = [
   "opus-tools"
 ]
 
