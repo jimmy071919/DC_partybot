@@ -17,11 +17,3 @@ ENV/
 
 # 其他
 *.log
-
-# Logs
-*.log
-.cache/
-
-# Python cache
-__pycache__/
-*.pyc

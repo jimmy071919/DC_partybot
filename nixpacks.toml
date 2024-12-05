@@ -1,7 +1,8 @@
 [phases.setup]
 providers = ["...", "python"]
-nixPkgs = ["...", "ffmpeg", "opus-tools"]
+nixPkgs = ["...", "ffmpeg"]
 nixLibs = ["...", "gcc-unwrapped"]
+aptPkgs = ["...", "opus-tools"]
 
 [phases.install]
 cmds = ["...", "python3 -m pip install -r requirements.txt"]
