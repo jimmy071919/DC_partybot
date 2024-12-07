@@ -1,19 +1,55 @@
-# 環境變數
+# Environment variables
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# 虛擬環境
-venv/
+*.so
+.Python
 env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
 ENV/
+.venv/
+.env/
 
-# IDE
-.vscode/
+# IDE specific files
 .idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
 
-# 其他
+# Project specific files
 *.log
+emoji_data.json
+playlists.json
+reminders.json
+
+# FFmpeg
+ffmpeg.exe
+
+# Temporary files
+temp/
+tmp/
+.temp/
+.tmp/
