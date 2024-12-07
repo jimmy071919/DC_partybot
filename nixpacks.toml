@@ -1,10 +1,16 @@
 [phases.setup]
 providers = ["python"]
-nixPkgs = [
+aptPkgs = [
   "...",
   "ffmpeg",
+  "python3-pip",
+  "libopus0",
+  "opus-tools",
+  "libopusfile0"
+]
+nixPkgs = [
+  "...",
   "python3",
-  "python3Packages.pip",
   "python3Packages.virtualenv",
   "curl"
 ]
@@ -12,7 +18,9 @@ nixPkgs = [
 [phases.install]
 cmds = [
   "python3 -m venv /app/venv",
-  "source /app/venv/bin/activate && pip install -r requirements.txt"
+  "source /app/venv/bin/activate && python3 -m pip install --upgrade pip",
+  "source /app/venv/bin/activate && python3 -m pip install -r requirements.txt",
+  "source /app/venv/bin/activate && python3 -m pip install PyNaCl"
 ]
 
 [start]
