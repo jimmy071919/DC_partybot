@@ -2,7 +2,6 @@
 providers = ["python"]
 aptPkgs = [
   "...",
-  "ffmpeg",
   "python3-pip",
   "libopus0",
   "opus-tools",
@@ -12,7 +11,11 @@ nixPkgs = [
   "...",
   "python3",
   "python3Packages.virtualenv",
-  "curl"
+  "curl",
+  "ffmpeg-full",
+  "opus",
+  "opusfile",
+  "libopus"
 ]
 
 [phases.install]
