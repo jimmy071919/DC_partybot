@@ -3,6 +3,8 @@ import yt_dlp
 import asyncio
 import html
 import logging
+import ssl
+import certifi
 from config import FFMPEG_PATH
 from .queue import queues
 
@@ -15,7 +17,7 @@ YDL_OPTIONS = {
     'extractaudio': True,
     'audioformat': 'mp3',
     'noplaylist': True,
-    'nocheckcertificate': True,
+    'nocheckcertificate': False,
     'ignoreerrors': False,
     'logtostderr': False,
     'quiet': True,
@@ -23,7 +25,9 @@ YDL_OPTIONS = {
     'default_search': 'auto',
     'source_address': '0.0.0.0',
     'ffmpeg_location': FFMPEG_PATH,
-    'extract_flat': 'in_playlist'
+    'extract_flat': 'in_playlist',
+    'ssl_verify': True,
+    'ca_cert': certifi.where()
 }
 
 FFMPEG_OPTIONS = {

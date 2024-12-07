@@ -24,38 +24,45 @@ class SongSelectView(discord.ui.View):
     
     def create_callback(self, index):
         async def button_callback(interaction: discord.Interaction):
-            selected_video = self.videos[index]
-            
-            # 確保機器人在語音頻道中
-            if not interaction.guild.voice_client:
-                if interaction.user.voice:
-                    await interaction.user.voice.channel.connect()
+            try:
+                selected_video = self.videos[index]
+                
+                # 確保機器人在語音頻道中
+                if not interaction.guild.voice_client:
+                    if interaction.user.voice:
+                        await interaction.user.voice.channel.connect()
+                    else:
+                        await interaction.response.send_message("請先加入語音頻道！", ephemeral=True)
+                        return
+                
+                # 初始化該伺服器的播放佇列
+                if interaction.guild_id not in queues:
+                    queues[interaction.guild_id] = MusicQueue()
+                
+                queue = queues[interaction.guild_id]
+                queue.voice_client = interaction.guild.voice_client
+                
+                # 將歌曲加入佇列
+                queue.add(selected_video)
+                
+                # 如果沒有在播放，開始播放
+                if not queue.is_playing:
+                    await play_next(interaction.guild_id, self.bot, interaction)
+                    await interaction.response.send_message(f"🎵 開始播放：{html.unescape(selected_video['title'])}")
                 else:
-                    await interaction.response.send_message("請先加入語音頻道！", ephemeral=True)
-                    return
+                    await interaction.response.send_message(f"➕ 已加入播放佇列：{html.unescape(selected_video['title'])}")
+                
+                # 禁用所有按鈕
+                for child in self.children:
+                    child.disabled = True
+                await interaction.message.edit(view=self)
             
-            # 初始化該伺服器的播放佇列
-            if interaction.guild_id not in queues:
-                queues[interaction.guild_id] = MusicQueue()
-            
-            queue = queues[interaction.guild_id]
-            queue.voice_client = interaction.guild.voice_client
-            
-            # 將歌曲加入佇列
-            queue.add(selected_video)
-            
-            # 如果沒有在播放，開始播放
-            if not queue.is_playing:
-                await play_next(interaction.guild_id, self.bot, interaction)
-                await interaction.response.send_message(f"🎵 開始播放：{html.unescape(selected_video['title'])}")
-            else:
-                await interaction.response.send_message(f"➕ 已加入播放佇列：{html.unescape(selected_video['title'])}")
-            
-            # 禁用所有按鈕
-            for child in self.children:
-                child.disabled = True
-            await interaction.message.edit(view=self)
-            
+            except discord.errors.NotFound:
+                # 如果互動已過期，不執行任何操作
+                pass
+            except Exception as e:
+                print(f"按鈕回調錯誤：{e}")
+        
         return button_callback
 
 class MusicCommands(commands.Cog):
