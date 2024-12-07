@@ -3,10 +3,35 @@ from discord.ext import commands
 import asyncio
 import os
 from config import DISCORD_TOKEN
+import yt_dlp
+import logging
 
 # 初始化 Discord bot
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# 配置更穩定的 YouTube 下載選項
+YTDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0',  # 繫結到 IPv4 since IPv6 addresses cause issues sometimes
+}
+
+def get_youtube_info(url):
+    try:
+        with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info
+    except Exception as e:
+        logging.error(f"YouTube 資訊提取錯誤：{e}")
+        return None
 
 # 載入所有 cogs
 async def load_extensions():

@@ -13,34 +13,23 @@ YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
 TENOR_API_KEY = os.getenv('TENOR_API_KEY')
 TENOR_API_URL = os.getenv('TENOR_API_URL')
 
-# 檔案路徑
 def find_ffmpeg():
-    # 嘗試在 Nix store 中找到 ffmpeg
-    nix_paths = [
-        "/nix/store/*/bin/ffmpeg",
-        "/run/current-system/sw/bin/ffmpeg"
-    ]
-    
-    for path_pattern in nix_paths:
-        import glob
-        matches = glob.glob(path_pattern)
-        if matches:
-            return matches[0]
-    
-    # 如果在 Nix store 中找不到，使用 which 命令
-    ffmpeg_path = shutil.which('ffmpeg')
-    if ffmpeg_path:
-        return ffmpeg_path
-    
-    # Windows 備用路徑
-    if os.name == "nt":
-        return "C:\\Program Files\\ffmpeg-7.1-full_build\\bin\\ffmpeg.exe"
-    
-    return None
+    try:
+        # 嘗試找到 FFmpeg
+        ffmpeg_path = shutil.which('ffmpeg')
+        if ffmpeg_path:
+            print(f"找到 FFmpeg：{ffmpeg_path}")
+            return ffmpeg_path
+        
+        # 如果找不到，印出警告但不中斷
+        print("警告：找不到 FFmpeg，部分功能可能受限")
+        return None
+    except Exception as e:
+        print(f"檢查 FFmpeg 時發生錯誤：{e}")
+        return None
 
+# 嘗試找到 FFmpeg，但不強制要求
 FFMPEG_PATH = find_ffmpeg()
-if not FFMPEG_PATH:
-    raise Exception("找不到 ffmpeg，請確保已正確安裝")
 
 EMOJI_DATA_PATH = os.getenv('EMOJI_DATA_PATH', 'emoji_data.json')
 PLAYLIST_DATA_PATH = os.getenv('PLAYLIST_DATA_PATH', 'playlists.json')
