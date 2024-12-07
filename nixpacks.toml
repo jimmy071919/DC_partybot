@@ -3,7 +3,19 @@ providers = ["...", "python"]
 
 # 設定安裝階段，安裝 ffmpeg
 [phases.setup]
-nixPkgs = ["ffmpeg"]
+providers = ["python"]
+nixPkgs = [
+  "...",
+  "ffmpeg",
+  "opus-tools"
+]
+
+# 設定安裝階段，安裝 python 相關套件
+[phases.install]
+cmds = [
+  "pip install --upgrade pip",
+  "pip install -r requirements.txt"
+]
 
 # 設定啟動命令
 [start]
