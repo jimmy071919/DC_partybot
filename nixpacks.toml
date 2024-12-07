@@ -4,14 +4,16 @@ nixPkgs = [
   "...",
   "ffmpeg",
   "python3",
+  "python3Packages.pip",
+  "python3Packages.virtualenv",
   "curl"
 ]
 
 [phases.install]
 cmds = [
-  "curl -sS https://bootstrap.pypa.io/get-pip.py | python3",
-  "python3 -m pip install -r requirements.txt"
+  "python3 -m venv /app/venv",
+  "source /app/venv/bin/activate && pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "python main.py"
+cmd = "source /app/venv/bin/activate && python main.py"
