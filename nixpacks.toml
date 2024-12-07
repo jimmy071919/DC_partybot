@@ -1,5 +1,5 @@
 # 設定 providers，包含自動檢測的和 python
-providers = ["auto", "python"]
+providers = ["...", "python"]
 
 # 設定安裝階段，安裝 ffmpeg
 [phases.setup]
