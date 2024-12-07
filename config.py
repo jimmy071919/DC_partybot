@@ -13,7 +13,7 @@ TENOR_API_KEY = os.getenv('TENOR_API_KEY')
 TENOR_API_URL = os.getenv('TENOR_API_URL')
 
 # 檔案路徑
-FFMPEG_PATH = "C:\\Program Files\\ffmpeg-7.1-full_build\\bin\\ffmpeg.exe"
+FFMPEG_PATH = "ffmpeg" if os.name != "nt" else "C:\\Program Files\\ffmpeg-7.1-full_build\\bin\\ffmpeg.exe"
 EMOJI_DATA_PATH = os.getenv('EMOJI_DATA_PATH', 'emoji_data.json')
 PLAYLIST_DATA_PATH = os.getenv('PLAYLIST_DATA_PATH', 'playlists.json')
 REMINDERS_DATA_PATH = os.getenv('REMINDERS_DATA_PATH', 'reminders.json')
