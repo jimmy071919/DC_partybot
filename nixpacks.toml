@@ -20,7 +20,8 @@ cmds = [
   "python3 -m venv /app/venv",
   "source /app/venv/bin/activate && python3 -m pip install --upgrade pip",
   "source /app/venv/bin/activate && python3 -m pip install -r requirements.txt",
-  "source /app/venv/bin/activate && python3 -m pip install PyNaCl"
+  "source /app/venv/bin/activate && python3 -m pip install PyNaCl",
+  "which ffmpeg > /dev/null || ln -s /usr/bin/ffmpeg /usr/local/bin/ffmpeg"
 ]
 
 [start]
