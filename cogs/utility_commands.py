@@ -96,7 +96,7 @@ class UtilityCommands(commands.Cog):
 
     @app_commands.command(name="gif", description="發送隨機 GIF")
     async def gif(self, interaction: discord.Interaction, category: str = "random"):
-        gif_url = get_random_gif(category)
+        gif_url = await get_random_gif(category)
         if gif_url:
             embed = discord.Embed(color=discord.Color.blue())
             embed.set_image(url=gif_url)
