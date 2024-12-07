@@ -1,4 +1,4 @@
-run = "python main.py"
+run = "bash setup_ffmpeg.sh && python main.py"
 entrypoint = "main.py"
 modules = ["python-3.10"]
 
@@ -11,5 +11,5 @@ pattern = "**/*.py"
 start = "pylsp"
 
 [deployment]
-run = ["python3", "main.py"]
+run = ["bash", "setup_ffmpeg.sh", "python3", "main.py"]
 deploymentTarget = "cloudrun"
