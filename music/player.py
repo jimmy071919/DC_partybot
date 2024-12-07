@@ -2,9 +2,13 @@ import discord
 import yt_dlp
 import asyncio
 import html
-import re
+import logging
 from config import FFMPEG_PATH
 from .queue import queues
+
+# 設定日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('music_player')
 
 YDL_OPTIONS = {
     'format': 'bestaudio/best',
@@ -24,7 +28,7 @@ YDL_OPTIONS = {
 
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn'
+    'options': '-vn -b:a 128k'
 }
 
 def get_youtube_info(url):
@@ -51,7 +55,7 @@ def get_youtube_info(url):
                 return info
 
         except Exception as e:
-            print(f"YouTube 資訊提取錯誤：{str(e)}")
+            logger.error(f"YouTube 資訊提取錯誤：{str(e)}")
             return None
 
 async def play_next(guild_id, bot, interaction=None):
@@ -83,42 +87,55 @@ async def play_next(guild_id, bot, interaction=None):
             audio_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('url')]
             if not audio_formats:
                 raise Exception("找不到可用的音訊格式")
-            url = audio_formats[0]['url']
+            
+            # 選擇最佳音質的格式
+            best_format = max(audio_formats, key=lambda f: int(f.get('abr', 0)))
+            url = best_format['url']
+            logger.info(f"選擇的音訊格式：{best_format.get('format_id')} ({best_format.get('abr')}k)")
 
         # 創建音訊來源
-        audio_source = discord.FFmpegPCMAudio(
-            url,
-            executable=FFMPEG_PATH,
-            **FFMPEG_OPTIONS
-        )
+        try:
+            audio_source = discord.FFmpegPCMAudio(
+                url,
+                executable=FFMPEG_PATH,
+                **FFMPEG_OPTIONS
+            )
+        except Exception as e:
+            logger.error(f"創建音訊來源失敗：{str(e)}")
+            raise
 
         def after_playing(error):
             if error:
-                print(f"播放錯誤：{str(error)}")
+                logger.error(f"播放錯誤：{str(error)}")
             asyncio.run_coroutine_threadsafe(play_next(guild_id, bot), bot.loop)
 
         # 檢查並播放
         if not queue.voice_client.is_playing():
-            queue.voice_client.play(audio_source, after=after_playing)
-            queue.is_playing = True
-            
-            if interaction:
-                title = html.unescape(info.get('title', next_song['title']))
-                duration = info.get('duration_string', 'N/A')
+            try:
+                queue.voice_client.play(audio_source, after=after_playing)
+                queue.is_playing = True
+                logger.info(f"開始播放：{info.get('title')}")
                 
-                embed = discord.Embed(
-                    title="🎵 正在播放",
-                    description=f"**{title}**\n⏱️ 長度：{duration}",
-                    color=discord.Color.green()
-                )
-                
-                if thumbnail := info.get('thumbnail'):
-                    embed.set_thumbnail(url=thumbnail)
-                
-                await interaction.channel.send(embed=embed)
+                if interaction:
+                    title = html.unescape(info.get('title', next_song['title']))
+                    duration = info.get('duration_string', 'N/A')
+                    
+                    embed = discord.Embed(
+                        title="🎵 正在播放",
+                        description=f"**{title}**\n⏱️ 長度：{duration}",
+                        color=discord.Color.green()
+                    )
+                    
+                    if thumbnail := info.get('thumbnail'):
+                        embed.set_thumbnail(url=thumbnail)
+                    
+                    await interaction.channel.send(embed=embed)
+            except Exception as e:
+                logger.error(f"播放音訊失敗：{str(e)}")
+                raise
                 
     except Exception as e:
-        print(f"播放錯誤：{str(e)}")
+        logger.error(f"播放錯誤：{str(e)}")
         if interaction:
             embed = discord.Embed(
                 title="❌ 錯誤",
