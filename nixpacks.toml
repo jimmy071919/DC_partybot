@@ -1,0 +1,14 @@
+# 設定要運行的 providers
+providers = ["...", "python"]
+
+# 設定安裝階段
+[phases.setup]
+nixPkgs = ["...", "ffmpeg", "python311"]
+
+# 設定構建階段
+[phases.build]
+cmds = ["pip install -r requirements.txt"]
+
+# 設定啟動命令
+[start]
+cmd = "python main.py"
