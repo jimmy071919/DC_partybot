@@ -1,9 +1,9 @@
 [phases.setup]
 providers = ["python"]
-nixPkgs = [
+aptPkgs = [
   "...",
   "ffmpeg",
-  "opus"
+  "opus-tools"
 ]
 
 [phases.install]
