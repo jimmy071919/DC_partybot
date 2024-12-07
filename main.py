@@ -4,10 +4,6 @@ import asyncio
 import os
 from config import DISCORD_TOKEN
 
-# 設置 FFmpeg 路徑
-ffmpeg_path = os.path.join(os.getcwd(), 'ffmpeg')
-os.environ['PATH'] += os.pathsep + os.getcwd()
-
 # 初始化 Discord bot
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
