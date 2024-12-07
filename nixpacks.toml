@@ -1,7 +1,3 @@
-# 設定 providers，包含自動檢測的和 python
-providers = ["...", "python"]
-
-# 設定安裝階段，安裝 ffmpeg
 [phases.setup]
 providers = ["python"]
 nixPkgs = [
@@ -10,13 +6,11 @@ nixPkgs = [
   "opus-tools"
 ]
 
-# 設定安裝階段，安裝 python 相關套件
 [phases.install]
 cmds = [
   "pip install --upgrade pip",
   "pip install -r requirements.txt"
 ]
 
-# 設定啟動命令
 [start]
 cmd = "python main.py"
