@@ -1,4 +1,4 @@
-run = "sudo apt-get update && sudo apt-get install -y ffmpeg && python main.py"
+run = "python main.py"
 entrypoint = "main.py"
 modules = ["python-3.10"]
 
@@ -11,5 +11,5 @@ pattern = "**/*.py"
 start = "pylsp"
 
 [deployment]
-run = ["sudo apt-get update", "sudo apt-get install -y ffmpeg", "python3", "main.py"]
+run = ["python3", "main.py"]
 deploymentTarget = "cloudrun"
