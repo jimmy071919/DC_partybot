@@ -121,17 +121,36 @@ async def main():
     intents = discord.Intents.all()
     bot = PartyBot(command_prefix="!", intents=intents)
     
-    try:
-        logger.info("正在啟動機器人...")
-        await bot.start(token)
-    except discord.LoginFailure as e:
-        logger.error(f"登入失敗: {str(e)}")
-    except Exception as e:
-        logger.error(f"發生未預期的錯誤: {str(e)}", exc_info=True)
-    finally:
-        if not bot.is_closed():
-            await bot.close()
-            logger.info("機器人正常關閉")
+    max_retries = 3
+    retry_delay = 60  # 60秒延遲
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info("正在啟動機器人...")
+            if attempt > 0:
+                logger.info(f"重試第 {attempt} 次，等待 {retry_delay} 秒...")
+                await asyncio.sleep(retry_delay)
+            await bot.start(token)
+            break
+        except discord.errors.HTTPException as e:
+            if e.status == 429:  # Rate limit error
+                if attempt < max_retries - 1:
+                    logger.warning(f"遇到速率限制，等待後重試: {str(e)}")
+                    continue
+                else:
+                    logger.error("已達到最大重試次數，機器人啟動失敗")
+            logger.error(f"HTTP 錯誤: {str(e)}")
+            break
+        except discord.LoginFailure as e:
+            logger.error(f"登入失敗: {str(e)}")
+            break
+        except Exception as e:
+            logger.error(f"發生未預期的錯誤: {str(e)}", exc_info=True)
+            break
+        finally:
+            if not bot.is_closed():
+                await bot.close()
+                logger.info("機器人正常關閉")
 
 def run_bot():
     """執行機器人"""
