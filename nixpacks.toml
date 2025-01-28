@@ -1,23 +1,22 @@
 [phases.setup]
-nixPkgs = ["ffmpeg"]
+nixPkgs = [
+    "ffmpeg",
+    "python311",
+    "python311Packages.pip",
+    "python311Packages.setuptools",
+    "python311Packages.wheel"
+]
 aptPkgs = [
-    "python3",
-    "python3-pip",
-    "python3-venv",
     "git",
     "libffi-dev",
     "libssl-dev",
-    "python3-dev",
-    "build-essential",
     "opus-tools"
 ]
 
 [phases.install]
 cmds = [
-    "apt-get update",
-    "apt-get install -y python3-pip",
-    "/usr/bin/pip3 install -r requirements.txt"
+    "pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "/usr/bin/python3 main.py"
+cmd = "python main.py"
