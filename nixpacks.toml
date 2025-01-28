@@ -1,10 +1,7 @@
 [phases.setup]
 nixPkgs = [
     "ffmpeg",
-    "python311",
-    "python311Packages.pip",
-    "python311Packages.setuptools",
-    "python311Packages.wheel"
+    "python311Full"
 ]
 aptPkgs = [
     "git",
@@ -15,7 +12,8 @@ aptPkgs = [
 
 [phases.install]
 cmds = [
-    "python -m pip install --break-system-packages -r requirements.txt"
+    "python -m pip install --upgrade pip",
+    "pip install --no-cache-dir -r requirements.txt"
 ]
 
 [start]
