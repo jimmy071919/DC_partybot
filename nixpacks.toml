@@ -1,7 +1,7 @@
 [phases.setup]
 nixPkgs = [
     "ffmpeg",
-    "opus",
+    "libopus",
     "python3",
     "gcc",
     "pkg-config"
