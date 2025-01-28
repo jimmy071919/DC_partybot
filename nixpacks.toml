@@ -2,15 +2,19 @@
 nixPkgs = [
     "ffmpeg",
     "libopus",
-    "python3Full",
-    "gcc",
-    "pkg-config"
+    "python311",
+    "python311Packages.pip"
+]
+aptPkgs = [
+    "git",
+    "libffi-dev",
+    "libssl-dev"
 ]
 
 [phases.install]
 cmds = [
-    "which ffmpeg || true",
-    "ffmpeg -version || true"
+    "pip install --upgrade pip",
+    "pip install -r requirements.txt"
 ]
 
 [phases.build]
@@ -19,3 +23,6 @@ cmds = [
     "python3 -m pip install --upgrade pip",
     "python3 -m pip install -r requirements.txt"
 ]
+
+[start]
+cmd = "python main.py"
