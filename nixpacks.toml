@@ -1,20 +1,22 @@
 [phases.setup]
-nixPkgs = [
-    "ffmpeg",
-    "python311Full"
-]
+nixPkgs = ["ffmpeg"]
 aptPkgs = [
     "git",
     "libffi-dev",
     "libssl-dev",
-    "opus-tools"
+    "opus-tools",
+    "python3",
+    "python3-pip",
+    "python3-venv"
 ]
 
 [phases.install]
 cmds = [
-    "python -m pip install --upgrade pip",
-    "pip install --no-cache-dir -r requirements.txt"
+    "python3 -m venv /app/venv",
+    ". /app/venv/bin/activate",
+    "pip3 install --upgrade pip",
+    "pip3 install -r requirements.txt"
 ]
 
 [start]
-cmd = "python bot.py"
+cmd = "/app/venv/bin/python bot.py"
