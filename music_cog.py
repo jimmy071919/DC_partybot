@@ -86,24 +86,26 @@ class Music(commands.Cog):
         self.logger.info(f"已選擇音訊格式: {best_audio.get('type')} ({best_audio.get('bitrate')})")
         return best_audio.get('url')
 
-    async def ensure_voice_connected(self, interaction: discord.Interaction, max_retries: int = 3) -> bool:
+    async def ensure_voice_connected(self, ctx) -> bool:
         """確保語音連接成功建立"""
         retry_count = 0
+        max_retries = 3
+        
         while retry_count < max_retries:
             try:
                 # 檢查用戶是否在語音頻道中
-                if not interaction.user.voice:
+                if not ctx.author.voice:
                     self.logger.error("用戶不在語音頻道中")
-                    await interaction.followup.send("你必須先加入一個語音頻道！", ephemeral=True)
+                    await ctx.reply("你必須先加入一個語音頻道！", ephemeral=True)
                     return False
                 
                 # 檢查機器人是否已經在語音頻道中
-                if not interaction.guild.voice_client:
+                if not ctx.guild.voice_client:
                     self.logger.info(f"嘗試連接語音頻道 (嘗試 {retry_count + 1}/{max_retries})")
                     
                     # 連接到語音頻道
                     try:
-                        voice_client = await interaction.user.voice.channel.connect()
+                        voice_client = await ctx.author.voice.channel.connect()
                         self.logger.info("語音連接成功建立")
                         return True
                     except Exception as e:
@@ -113,7 +115,7 @@ class Music(commands.Cog):
                             await asyncio.sleep(1)  # 等待一秒後重試
                             continue
                         else:
-                            await interaction.followup.send("無法連接到語音頻道，請稍後再試。", ephemeral=True)
+                            await ctx.reply("無法連接到語音頻道，請稍後再試。", ephemeral=True)
                             return False
                 else:
                     self.logger.info("機器人已經在語音頻道中")
@@ -126,7 +128,7 @@ class Music(commands.Cog):
                     await asyncio.sleep(1)
                     continue
                 else:
-                    await interaction.followup.send("發生錯誤，請稍後再試。", ephemeral=True)
+                    await ctx.reply("發生錯誤，請稍後再試。", ephemeral=True)
                     return False
         
         return False
@@ -140,7 +142,7 @@ class Music(commands.Cog):
             if queue.voice_client and not queue.voice_client.is_playing():
                 asyncio.create_task(self.play_next(guild_id))
 
-    async def play_next(self, guild_id: int, interaction: discord.Interaction = None):
+    async def play_next(self, guild_id: int, ctx = None):
         """播放下一首歌曲"""
         queue = self.get_queue(guild_id)
         if not queue:
@@ -148,8 +150,8 @@ class Music(commands.Cog):
             return
 
         # 檢查並嘗試恢復語音客戶端
-        if not queue.voice_client and interaction and interaction.guild.voice_client:
-            queue.voice_client = interaction.guild.voice_client
+        if not queue.voice_client and ctx and ctx.guild.voice_client:
+            queue.voice_client = ctx.guild.voice_client
             self.logger.info("已恢復語音客戶端連接")
 
         next_song = queue.get_next()
@@ -185,32 +187,32 @@ class Music(commands.Cog):
                 
                 self.logger.info("開始播放音訊")
                 
-                if interaction:
+                if ctx:
                     embed = discord.Embed(
                         title="🎵 正在播放",
                         description=next_song['title'],
                         color=discord.Color.green()
                     )
-                    await interaction.followup.send(embed=embed)
+                    await ctx.reply(embed=embed)
                 
             except Exception as e:
                 self.logger.error(f"處理下一首歌曲時發生錯誤: {type(e).__name__}: {str(e)}")
-                if interaction:
-                    await interaction.followup.send(f"播放時發生錯誤：{type(e).__name__}: {str(e)}", ephemeral=True)
+                if ctx:
+                    await ctx.reply(f"播放時發生錯誤：{type(e).__name__}: {str(e)}", ephemeral=True)
                 # 如果出錯，嘗試播放下一首
-                await self.play_next(guild_id, interaction)
+                await self.play_next(guild_id, ctx)
         else:
             if queue.loop:
                 self.logger.info("佇列為空，但已開啟循環播放")
                 # 如果開啟了循環播放，重新將當前歌曲加入佇列
                 if queue.current:
                     queue.add(queue.current)
-                    await self.play_next(guild_id, interaction)
+                    await self.play_next(guild_id, ctx)
             else:
                 self.logger.info("佇列為空且未開啟循環播放")
                 queue.is_playing = False
-                if interaction:
-                    await interaction.followup.send("播放完畢！", ephemeral=True)
+                if ctx:
+                    await ctx.reply("播放完畢！", ephemeral=True)
 
     @commands.hybrid_command(name='play', description='播放音樂')
     async def play(self, ctx: commands.Context, *, query: str):
@@ -234,7 +236,7 @@ class Music(commands.Cog):
             ).execute()
             
             if not search_response.get('items'):
-                await ctx.send("找不到相關影片。", ephemeral=True)
+                await ctx.reply("找不到相關影片。", ephemeral=True)
                 return
             
             self.logger.info(f"使用 YouTube API 搜尋到 {len(search_response['items'])} 個影片")
@@ -256,11 +258,11 @@ class Music(commands.Cog):
             if not queue.is_playing:
                 await self.play_next(ctx.guild.id, ctx)
             else:
-                await ctx.send(f"已將 {video_title} 加入播放佇列！", ephemeral=True)
+                await ctx.reply(f"已將 {video_title} 加入播放佇列！", ephemeral=True)
             
         except Exception as e:
             self.logger.error(f"播放指令發生錯誤: {str(e)}")
-            await ctx.send(f"發生錯誤：{str(e)}", ephemeral=True)
+            await ctx.reply(f"發生錯誤：{str(e)}", ephemeral=True)
 
     @commands.hybrid_command(name='skip', description='跳過當前歌曲')
     async def skip(self, ctx: commands.Context):
@@ -270,9 +272,9 @@ class Music(commands.Cog):
         queue = self.get_queue(ctx.guild.id)
         if queue.voice_client and queue.voice_client.is_playing():
             queue.voice_client.stop()
-            await ctx.send("已跳過當前歌曲！", ephemeral=True)
+            await ctx.reply("已跳過當前歌曲！", ephemeral=True)
         else:
-            await ctx.send("目前沒有正在播放的歌曲。", ephemeral=True)
+            await ctx.reply("目前沒有正在播放的歌曲。", ephemeral=True)
 
     @commands.hybrid_command(name='loop', description='切換循環播放模式')
     async def loop(self, ctx: commands.Context):
@@ -281,7 +283,7 @@ class Music(commands.Cog):
         
         queue = self.get_queue(ctx.guild.id)
         queue.loop = not queue.loop
-        await ctx.send(f"循環播放模式已{'開啟' if queue.loop else '關閉'}！", ephemeral=True)
+        await ctx.reply(f"循環播放模式已{'開啟' if queue.loop else '關閉'}！", ephemeral=True)
 
     @commands.hybrid_command(name='stop', description='停止播放並清空佇列')
     async def stop(self, ctx: commands.Context):
@@ -295,9 +297,9 @@ class Music(commands.Cog):
             queue.queue.clear()
             queue.current = None
             queue.is_playing = False
-            await ctx.send("已停止播放並清空佇列！", ephemeral=True)
+            await ctx.reply("已停止播放並清空佇列！", ephemeral=True)
         else:
-            await ctx.send("機器人不在語音頻道中。", ephemeral=True)
+            await ctx.reply("機器人不在語音頻道中。", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Music(bot))
