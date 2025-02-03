@@ -9,6 +9,7 @@ import html
 import json
 import base64
 import tempfile
+import shutil
 from typing import List, Dict
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
