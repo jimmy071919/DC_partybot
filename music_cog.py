@@ -105,6 +105,14 @@ class Music(commands.Cog):
                     f.write(decoded_cookies)
                 
                 self.logger.info(f"已創建臨時 cookies 文件: {cookies_path}")
+                
+                # 確保文件權限正確
+                try:
+                    os.chmod(cookies_path, 0o644)
+                    self.logger.info("已設置 cookies 文件權限")
+                except Exception as e:
+                    self.logger.warning(f"設置 cookies 文件權限時發生錯誤: {str(e)}")
+                    
             except Exception as e:
                 self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
         else:
@@ -124,21 +132,20 @@ class Music(commands.Cog):
             'noplaylist': True,
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': False,  # 不要只提取元數據
+            'extract_flat': False,
             'force_generic_extractor': False,
             'youtube_include_dash_manifest': False,
-            'cookiesfrombrowser': ('chrome',),  # 嘗試從瀏覽器獲取 cookies
-            'nocheckcertificate': True,  # 不檢查證書
-            'ignoreerrors': True,  # 忽略錯誤
-            'no_color': True,  # 禁用顏色輸出
-            'geo_bypass': True,  # 繞過地理限制
+            'nocheckcertificate': True,
+            'ignoreerrors': True,
+            'no_color': True,
+            'geo_bypass': True,
             'extractor_args': {
                 'youtube': {
-                    'skip': ['dash', 'hls'],  # 跳過某些格式
-                    'player_skip': ['js', 'configs', 'webpage']  # 跳過播放器相關內容
+                    'skip': ['dash', 'hls'],
+                    'player_skip': ['js', 'configs', 'webpage']
                 }
             },
-            'http_headers': {  # 添加自定義 headers
+            'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
@@ -150,6 +157,20 @@ class Music(commands.Cog):
         if cookies_path and os.path.exists(cookies_path):
             self.YDL_OPTIONS['cookies'] = cookies_path
             self.logger.info(f"已將 cookies 文件添加到 yt-dlp 選項中: {cookies_path}")
+            
+            # 驗證 cookies 文件內容
+            try:
+                with open(cookies_path, 'r', encoding='utf-8') as f:
+                    first_line = f.readline().strip()
+                    self.logger.info(f"Cookies 文件首行: {first_line}")
+                    if not first_line.startswith('# Netscape HTTP Cookie File'):
+                        self.logger.warning("Cookies 文件格式可能不正確")
+            except Exception as e:
+                self.logger.error(f"讀取 cookies 文件時發生錯誤: {str(e)}")
+        
+        # 移除 cookiesfrombrowser 選項
+        if 'cookiesfrombrowser' in self.YDL_OPTIONS:
+            del self.YDL_OPTIONS['cookiesfrombrowser']
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
