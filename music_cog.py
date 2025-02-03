@@ -215,9 +215,15 @@ class Music(commands.Cog):
                     await asyncio.sleep(1)
                     if voice_client and voice_client.is_connected():
                         self.logger.info("語音連接成功建立")
+                        # 更新佇列中的語音客戶端
+                        queue = self.get_queue(interaction.guild.id)
+                        queue.voice_client = voice_client
                         return True
                 else:
                     if interaction.guild.voice_client.is_connected():
+                        # 更新佇列中的語音客戶端
+                        queue = self.get_queue(interaction.guild.id)
+                        queue.voice_client = interaction.guild.voice_client
                         return True
                     else:
                         await interaction.guild.voice_client.disconnect(force=True)
@@ -240,6 +246,11 @@ class Music(commands.Cog):
             self.logger.error(f"找不到 guild_id {guild_id} 的佇列")
             return
 
+        # 檢查並嘗試恢復語音客戶端
+        if not queue.voice_client and interaction and interaction.guild.voice_client:
+            queue.voice_client = interaction.guild.voice_client
+            self.logger.info("已恢復語音客戶端連接")
+
         if not queue.voice_client:
             self.logger.error("沒有語音客戶端連接")
             if interaction:
@@ -250,7 +261,14 @@ class Music(commands.Cog):
             self.logger.error("語音客戶端未連接")
             if interaction:
                 await interaction.followup.send("錯誤：語音客戶端未連接", ephemeral=True)
-            return
+            # 嘗試重新連接
+            if interaction and interaction.user.voice:
+                if await self.ensure_voice_connected(interaction):
+                    self.logger.info("已重新建立語音連接")
+                else:
+                    return
+            else:
+                return
 
         if not queue.queue and not queue.loop:
             self.logger.info("佇列為空且未開啟循環播放")
