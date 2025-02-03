@@ -281,35 +281,6 @@ class Music(commands.Cog):
             try:
                 self.logger.info(f"準備播放: {next_song['title']} ({next_song['url']})")
                 
-                # 讀取 cookies
-                cookies_content = os.getenv('YOUTUBE_COOKIES')
-                cookies_file = None
-                
-                if cookies_content:
-                    self.logger.info("從環境變數讀取 cookies")
-                    try:
-                        # 解碼 base64 內容
-                        decoded_cookies = base64.b64decode(cookies_content).decode('utf-8')
-                        
-                        # 創建臨時文件
-                        temp_dir = tempfile.gettempdir()
-                        cookies_file = os.path.join(temp_dir, 'youtube_cookies.txt')
-                        
-                        # 寫入 cookies 內容
-                        with open(cookies_file, 'w', encoding='utf-8') as f:
-                            if not decoded_cookies.startswith('# Netscape HTTP Cookie File'):
-                                f.write("# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n")
-                            f.write(decoded_cookies)
-                        
-                        self.logger.info(f"已將 cookies 寫入臨時文件: {cookies_file}")
-                        os.chmod(cookies_file, 0o600)  # 設置更嚴格的文件權限
-                        
-                    except Exception as e:
-                        self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
-                        if cookies_file and os.path.exists(cookies_file):
-                            os.remove(cookies_file)
-                            cookies_file = None
-                
                 # 設置 yt-dlp 選項
                 ydl_opts = {
                     'format': 'bestaudio/best',
@@ -327,6 +298,7 @@ class Music(commands.Cog):
                     'geo_bypass': True,
                     'socket_timeout': 30,
                     'retries': 10,
+                    'cookiesfrombrowser': ('chrome',),  # 從 Chrome 瀏覽器獲取 cookies
                     'http_headers': {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -334,9 +306,6 @@ class Music(commands.Cog):
                         'Sec-Fetch-Mode': 'navigate'
                     }
                 }
-                
-                if cookies_file:
-                    ydl_opts['cookiefile'] = cookies_file
                 
                 self.logger.info("開始提取影片資訊...")
                 
@@ -380,15 +349,6 @@ class Music(commands.Cog):
                         self.logger.error(f"提取影片資訊時發生錯誤: {str(e)}")
                         raise
                     
-                    finally:
-                        # 清理臨時文件
-                        if cookies_file and os.path.exists(cookies_file):
-                            try:
-                                os.remove(cookies_file)
-                                self.logger.info("已清理臨時 cookies 文件")
-                            except Exception as e:
-                                self.logger.error(f"清理臨時文件時發生錯誤: {str(e)}")
-                
             except Exception as e:
                 self.logger.error(f"處理下一首歌曲時發生錯誤: {str(e)}")
                 if interaction:
