@@ -160,6 +160,8 @@ class Music(commands.Cog):
             'ignoreerrors': True,
             'no_color': True,
             'geo_bypass': True,
+            'socket_timeout': 30,  # 增加超時時間
+            'retries': 10,  # 增加重試次數
             'extractor_args': {
                 'youtube': {
                     'skip': ['dash', 'hls'],
@@ -170,7 +172,9 @@ class Music(commands.Cog):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate'
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-Dest': 'document'
             }
         }
         
@@ -249,6 +253,7 @@ class Music(commands.Cog):
                         with open(cookies_path, 'r', encoding='utf-8') as f:
                             cookies_content = f.read()
                             self.logger.info(f"Cookies 文件內容長度: {len(cookies_content)} 字節")
+                            self.logger.info(f"Cookies 文件前100個字符: {cookies_content[:100]}")
                     except Exception as e:
                         self.logger.error(f"讀取 cookies 文件時發生錯誤: {str(e)}")
                 else:
@@ -256,19 +261,37 @@ class Music(commands.Cog):
             else:
                 self.logger.warning("未設置 cookies 文件")
 
-            with yt_dlp.YoutubeDL(self.YDL_OPTIONS) as ydl:
+            # 創建新的 YoutubeDL 實例並設置選項
+            ydl_opts = self.YDL_OPTIONS.copy()
+            ydl_opts.update({
+                'quiet': False,  # 開啟輸出以便調試
+                'no_warnings': False,
+                'verbose': True
+            })
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 try:
                     self.logger.info("開始提取影片信息...")
+                    
+                    # 首先嘗試獲取基本信息
+                    basic_info = ydl.extract_info(next_song['url'], download=False, process=False)
+                    if basic_info:
+                        self.logger.info(f"基本信息: {basic_info.get('title', 'Unknown Title')}")
+                    
+                    # 然後獲取完整信息
                     info = ydl.extract_info(next_song['url'], download=False)
                     
                     if info is None:
                         raise Exception("無法獲取影片信息")
                         
                     if 'url' not in info:
-                        raise Exception(f"影片信息中沒有 URL: {info}")
+                        self.logger.error(f"影片信息中沒有 URL，可用鍵: {list(info.keys())}")
+                        raise Exception(f"影片信息中沒有 URL")
                         
                     url = info['url']
                     self.logger.info("成功獲取影片 URL")
+                    self.logger.info(f"影片標題: {info.get('title', 'Unknown')}")
+                    self.logger.info(f"影片時長: {info.get('duration_string', 'Unknown')}")
 
                     def after_playing(error):
                         if error:
@@ -289,7 +312,7 @@ class Music(commands.Cog):
                     queue.is_playing = True
 
                     if interaction and interaction.channel:
-                        title = html.unescape(next_song['title'])
+                        title = html.unescape(info.get('title', next_song['title']))
                         embed = discord.Embed(
                             title="🎵 正在播放",
                             description=title,
@@ -304,6 +327,14 @@ class Music(commands.Cog):
                             value=next_song.get('requester', 'Unknown')
                         )
                         await interaction.channel.send(embed=embed)
+                except yt_dlp.utils.DownloadError as e:
+                    self.logger.error(f"下載錯誤: {str(e)}")
+                    if "Sign in to confirm your age" in str(e):
+                        raise Exception("此影片需要年齡驗證，請嘗試其他影片")
+                    elif "Sign in to confirm you're not a bot" in str(e):
+                        raise Exception("YouTube 要求驗證，請稍後再試")
+                    else:
+                        raise
                 except Exception as e:
                     self.logger.error(f"提取影片信息時發生錯誤: {str(e)}")
                     raise
