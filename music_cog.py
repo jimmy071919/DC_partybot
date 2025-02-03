@@ -208,30 +208,57 @@ class Music(commands.Cog):
             try:
                 if not interaction.guild.voice_client:
                     self.logger.info(f"嘗試連接語音頻道 (嘗試 {retry_count + 1}/{max_retries})")
-                    voice_client = await interaction.user.voice.channel.connect()
-                    # 等待確保連接完全建立
+                    
+                    # 確保用戶在語音頻道中
+                    if not interaction.user.voice:
+                        self.logger.error("用戶不在語音頻道中")
+                        return False
+                        
+                    # 檢查權限
+                    permissions = interaction.user.voice.channel.permissions_for(interaction.guild.me)
+                    if not permissions.connect or not permissions.speak:
+                        self.logger.error("機器人缺少必要的語音頻道權限")
+                        return False
+                    
+                    # 連接前先等待一下
                     await asyncio.sleep(1)
-                    if voice_client and voice_client.is_connected():
-                        self.logger.info("語音連接成功建立")
+                    
+                    # 嘗試連接
+                    voice_client = await interaction.user.voice.channel.connect(timeout=20.0, self_deaf=True)
+                    
+                    # 等待確保連接完全建立
+                    for _ in range(5):  # 最多等待5秒
+                        if voice_client and voice_client.is_connected():
+                            self.logger.info("語音連接成功建立")
+                            # 更新佇列中的語音客戶端
+                            queue = self.get_queue(interaction.guild.id)
+                            queue.voice_client = voice_client
+                            return True
+                        await asyncio.sleep(1)
+                else:
+                    # 檢查現有連接是否有效
+                    voice_client = interaction.guild.voice_client
+                    if voice_client.is_connected():
                         # 更新佇列中的語音客戶端
                         queue = self.get_queue(interaction.guild.id)
                         queue.voice_client = voice_client
                         return True
-                else:
-                    if interaction.guild.voice_client.is_connected():
-                        # 更新佇列中的語音客戶端
-                        queue = self.get_queue(interaction.guild.id)
-                        queue.voice_client = interaction.guild.voice_client
-                        return True
                     else:
-                        await interaction.guild.voice_client.disconnect(force=True)
+                        # 斷開無效連接並重試
+                        await voice_client.disconnect(force=True)
+                        await asyncio.sleep(2)  # 等待更長時間
                         continue
 
+            except discord.ClientException as e:
+                self.logger.error(f"Discord 客戶端錯誤 (嘗試 {retry_count + 1}/{max_retries}): {str(e)}")
+            except discord.errors.ConnectionClosed as e:
+                self.logger.error(f"連接關閉 (嘗試 {retry_count + 1}/{max_retries}): 錯誤碼 {e.code}")
             except Exception as e:
                 self.logger.error(f"語音連接失敗 (嘗試 {retry_count + 1}/{max_retries}): {str(e)}")
-                retry_count += 1
-                if retry_count < max_retries:
-                    await asyncio.sleep(1)  # 等待一秒後重試
+            
+            retry_count += 1
+            if retry_count < max_retries:
+                await asyncio.sleep(2)  # 增加重試間隔
                 continue
 
         self.logger.error("無法建立語音連接")
