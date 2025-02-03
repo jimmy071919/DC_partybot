@@ -209,7 +209,7 @@ class Music(commands.Cog):
                 if not interaction.guild.voice_client:
                     self.logger.info(f"嘗試連接語音頻道 (嘗試 {retry_count + 1}/{max_retries})")
                     
-                    # 確保用戶在語音頻道中
+                    # 檢查用戶是否在語音頻道中
                     if not interaction.user.voice:
                         self.logger.error("用戶不在語音頻道中")
                         return False
@@ -284,21 +284,16 @@ class Music(commands.Cog):
                 # 設置 yt-dlp 選項
                 ydl_opts = {
                     'format': 'bestaudio/best',
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': '192',
-                    }],
                     'quiet': True,
                     'no_warnings': True,
-                    'extract_flat': False,
+                    'extract_flat': 'in_playlist',
                     'force_generic_extractor': False,
                     'ignoreerrors': True,
                     'no_color': True,
                     'geo_bypass': True,
                     'socket_timeout': 30,
                     'retries': 10,
-                    'cookiesfrombrowser': ('chrome',),  # 從 Chrome 瀏覽器獲取 cookies
+                    'nocheckcertificate': True,
                     'http_headers': {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -306,12 +301,42 @@ class Music(commands.Cog):
                         'Sec-Fetch-Mode': 'navigate'
                     }
                 }
-                
+
                 self.logger.info("開始提取影片資訊...")
                 
                 # 使用 yt-dlp 提取影片資訊
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     try:
+                        # 首先嘗試直接獲取音訊 URL
+                        FFMPEG_OPTIONS = {
+                            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                            'options': '-vn'
+                        }
+
+                        # 使用 youtube-dl 格式的 URL
+                        video_id = next_song['url'].split('watch?v=')[-1]
+                        direct_url = f'https://youtu.be/{video_id}'
+                        
+                        self.logger.info(f"嘗試使用直接 URL: {direct_url}")
+                        source = await discord.FFmpegOpusAudio.from_probe(
+                            direct_url,
+                            **FFMPEG_OPTIONS
+                        )
+                        
+                        queue.voice_client.play(source, after=lambda e: self.after_playing(e))
+                        queue.is_playing = True
+                        
+                        if interaction:
+                            embed = discord.Embed(
+                                title="🎵 正在播放",
+                                description=next_song['title'],
+                                color=discord.Color.green()
+                            )
+                            await interaction.followup.send(embed=embed)
+                        
+                    except Exception as e:
+                        self.logger.error(f"直接播放失敗，嘗試提取影片資訊: {str(e)}")
+                        # 如果直接播放失敗，嘗試提取影片資訊
                         info = await asyncio.get_event_loop().run_in_executor(
                             None, 
                             lambda: ydl.extract_info(next_song['url'], download=False)
@@ -319,11 +344,10 @@ class Music(commands.Cog):
                         
                         if not info:
                             raise Exception("無法獲取影片資訊")
-                            
+                        
                         # 獲取音訊URL
-                        if 'url' in info:
-                            url = info['url']
-                        else:
+                        url = info.get('url')
+                        if not url:
                             formats = info.get('formats', [])
                             if not formats:
                                 raise Exception("無法找到可用的音訊格式")
@@ -335,19 +359,17 @@ class Music(commands.Cog):
                             
                             url = audio_formats[0]['url']
                         
-                        # 播放音訊
-                        FFMPEG_OPTIONS = {
-                            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-                            'options': '-vn'
-                        }
-                        
                         source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
                         queue.voice_client.play(source, after=lambda e: self.after_playing(e))
                         queue.is_playing = True
                         
-                    except Exception as e:
-                        self.logger.error(f"提取影片資訊時發生錯誤: {str(e)}")
-                        raise
+                        if interaction:
+                            embed = discord.Embed(
+                                title="🎵 正在播放",
+                                description=next_song['title'],
+                                color=discord.Color.green()
+                            )
+                            await interaction.followup.send(embed=embed)
                     
             except Exception as e:
                 self.logger.error(f"處理下一首歌曲時發生錯誤: {str(e)}")
