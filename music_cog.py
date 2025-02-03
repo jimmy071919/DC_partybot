@@ -1,17 +1,18 @@
+import os
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
+import yt_dlp
+import logging
 import asyncio
 import html
-import yt_dlp
-from googleapiclient.discovery import build
-import os
-from dotenv import load_dotenv
-import logging
-import shutil
 import json
 import base64
 import tempfile
+from typing import List, Dict
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from dotenv import load_dotenv
 
 # 載入環境變數
 load_dotenv()
@@ -345,24 +346,100 @@ class Music(commands.Cog):
                 await interaction.channel.send(f"播放時發生錯誤：{str(e)}")
             await self.play_next(guild_id, interaction)
 
-    def search_youtube(self, query):
-        request = self.youtube.search().list(
-            part="snippet",
-            q=query,
-            type="video",
-            maxResults=10
-        )
-        response = request.execute()
-        
-        videos = []
-        for item in response['items']:
-            video = {
-                "title": item['snippet']['title'],
-                "url": f"https://www.youtube.com/watch?v={item['id']['videoId']}",
-                "channel": item['snippet']['channelTitle']
+    async def search_youtube(self, query: str) -> List[Dict]:
+        """搜尋 YouTube 影片"""
+        try:
+            # 首先嘗試使用 YouTube Data API 搜尋
+            youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+            
+            # 執行搜尋
+            search_response = youtube.search().list(
+                q=query,
+                part='id,snippet',
+                maxResults=10,
+                type='video'
+            ).execute()
+
+            videos = []
+            for item in search_response.get('items', []):
+                if item['id']['kind'] == 'youtube#video':
+                    video_id = item['id']['videoId']
+                    title = item['snippet']['title']
+                    url = f"https://www.youtube.com/watch?v={video_id}"
+                    videos.append({
+                        'url': url,
+                        'title': title,
+                        'duration': 'N/A'  # YouTube API v3 不直接提供時長
+                    })
+
+            self.logger.info(f"使用 YouTube API 搜尋到 {len(videos)} 個影片")
+            return videos
+
+        except HttpError as e:
+            self.logger.error(f"YouTube API 搜尋失敗: {str(e)}")
+            
+            # 如果 API 搜尋失敗，回退到 yt-dlp
+            self.logger.info("回退到 yt-dlp 搜尋...")
+            
+            # 使用修改後的 yt-dlp 選項進行搜尋
+            search_opts = {
+                'format': 'bestaudio/best',
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': True,
+                'skip_download': True,
+                'force_generic_extractor': True,
+                'ignoreerrors': True,
+                'no_color': True,
+                'geo_bypass': True,
+                'socket_timeout': 30,
+                'retries': 10,
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['dash', 'hls'],
+                        'player_skip': ['js', 'configs', 'webpage']
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-Dest': 'document',
+                    'Origin': 'https://www.youtube.com',
+                    'Referer': 'https://www.youtube.com/'
+                }
             }
-            videos.append(video)
-        return videos
+
+            # 如果有 cookies，添加到搜尋選項中
+            if 'cookies' in self.YDL_OPTIONS:
+                search_opts['cookies'] = self.YDL_OPTIONS['cookies']
+
+            with yt_dlp.YoutubeDL(search_opts) as ydl:
+                try:
+                    self.logger.info(f"使用的 yt-dlp 選項: {search_opts}")
+                    results = ydl.extract_info(f"ytsearch{10}:{query}", download=False)
+                    
+                    if not results:
+                        self.logger.error("搜尋結果為空")
+                        return []
+
+                    videos = []
+                    for entry in results['entries']:
+                        if entry:
+                            videos.append({
+                                'url': f"https://www.youtube.com/watch?v={entry['id']}",
+                                'title': entry.get('title', 'Unknown'),
+                                'duration': entry.get('duration_string', 'N/A')
+                            })
+
+                    self.logger.info(f"搜尋結果: {len(videos)} 個影片")
+                    return videos
+
+                except Exception as e:
+                    self.logger.error(f"yt-dlp 搜尋失敗: {str(e)}")
+                    return []
 
     @app_commands.command(name="join", description="讓機器人加入用戶所在的語音頻道")
     async def join(self, interaction: discord.Interaction):
@@ -390,7 +467,7 @@ class Music(commands.Cog):
         try:
             self.logger.info(f"開始搜尋: {query}")
             self.logger.info(f"使用的 yt-dlp 選項: {self.YDL_OPTIONS}")
-            videos = self.search_youtube(query)
+            videos = await self.search_youtube(query)
             self.logger.info(f"搜尋結果: {len(videos)} 個影片")
         except Exception as e:
             await interaction.followup.send("搜尋時發生錯誤！", ephemeral=True)
