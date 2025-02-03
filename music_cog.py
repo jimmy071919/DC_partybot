@@ -9,6 +9,7 @@ import os
 from dotenv import load_dotenv
 import logging
 import shutil
+import json
 
 # 載入環境變數
 load_dotenv()
@@ -84,6 +85,11 @@ class Music(commands.Cog):
         self.logger.info(f"找到 ffmpeg: {ffmpeg_path}")
         self.disabled = False
         
+        # 檢查 cookies 文件
+        cookies_path = os.path.join(os.path.dirname(__file__), 'youtube.cookies')
+        if not os.path.exists(cookies_path):
+            self.logger.warning("找不到 cookies 文件，某些影片可能無法播放")
+        
         # 設定 yt-dlp 選項
         self.YDL_OPTIONS = {
             'format': 'bestaudio/best',
@@ -105,6 +111,10 @@ class Music(commands.Cog):
                 }
             }
         }
+        
+        # 如果存在 cookies 文件，則添加到選項中
+        if os.path.exists(cookies_path):
+            self.YDL_OPTIONS['cookies'] = cookies_path
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
