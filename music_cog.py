@@ -203,26 +203,35 @@ class Music(commands.Cog):
             self.queues[guild_id] = MusicQueue()
         return self.queues[guild_id]
 
-    async def ensure_voice_client(self, interaction: discord.Interaction) -> bool:
-        """確保機器人在語音頻道中"""
-        if not interaction.guild:
-            await interaction.response.send_message("這個指令只能在伺服器中使用！", ephemeral=True)
-            return False
-
-        if not interaction.user.voice:
-            await interaction.response.send_message("你必須先加入語音頻道！", ephemeral=True)
-            return False
-
-        queue = self.get_queue(interaction.guild_id)
-        if not queue.voice_client:
+    async def ensure_voice_connected(self, interaction: discord.Interaction, max_retries: int = 3) -> bool:
+        """確保語音連接成功建立"""
+        retry_count = 0
+        while retry_count < max_retries:
             try:
-                queue.voice_client = await interaction.user.voice.channel.connect()
-            except Exception as e:
-                self.logger.error(f"無法連接到語音頻道: {str(e)}")
-                await interaction.response.send_message("無法連接到語音頻道，請稍後再試！", ephemeral=True)
-                return False
+                if not interaction.guild.voice_client:
+                    self.logger.info(f"嘗試連接語音頻道 (嘗試 {retry_count + 1}/{max_retries})")
+                    voice_client = await interaction.user.voice.channel.connect()
+                    # 等待確保連接完全建立
+                    await asyncio.sleep(1)
+                    if voice_client and voice_client.is_connected():
+                        self.logger.info("語音連接成功建立")
+                        return True
+                else:
+                    if interaction.guild.voice_client.is_connected():
+                        return True
+                    else:
+                        await interaction.guild.voice_client.disconnect(force=True)
+                        continue
 
-        return True
+            except Exception as e:
+                self.logger.error(f"語音連接失敗 (嘗試 {retry_count + 1}/{max_retries}): {str(e)}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(1)  # 等待一秒後重試
+                continue
+
+        self.logger.error("無法建立語音連接")
+        return False
 
     async def play_next(self, guild_id: int, interaction: discord.Interaction = None):
         """播放下一首歌曲"""
@@ -460,7 +469,7 @@ class Music(commands.Cog):
 
             with yt_dlp.YoutubeDL(search_opts) as ydl:
                 try:
-                    self.logger.info(f"使用的 yt-dlp 選項: {search_opts}")
+                    self.logger.info("使用的 yt-dlp 選項: {search_opts}")
                     results = ydl.extract_info(f"ytsearch{10}:{query}", download=False)
                     
                     if not results:
@@ -517,21 +526,17 @@ class Music(commands.Cog):
                 if interaction.guild.voice_client.channel != interaction.user.voice.channel:
                     await interaction.response.send_message("我已經在另一個語音頻道中了！", ephemeral=True)
                     return
-            else:
-                # 如果機器人不在任何語音頻道中，則加入用戶的語音頻道
-                try:
-                    await interaction.user.voice.channel.connect()
-                except Exception as e:
-                    self.logger.error(f"加入語音頻道時發生錯誤: {str(e)}")
-                    await interaction.response.send_message(f"加入語音頻道時發生錯誤: {str(e)}", ephemeral=True)
-                    return
 
-            # 延遲響應，因為搜索可能需要一些時間
+            # 延遲響應，因為接下來的操作可能需要一些時間
             try:
                 await interaction.response.defer(ephemeral=False)
             except discord.errors.InteractionResponded:
-                # 如果已經響應過了，就不需要再次延遲
                 pass
+
+            # 確保語音連接
+            if not await self.ensure_voice_connected(interaction):
+                await interaction.followup.send("無法建立語音連接，請稍後再試！", ephemeral=True)
+                return
 
             # 獲取或創建音樂佇列
             queue = self.get_queue(interaction.guild.id)
@@ -575,7 +580,6 @@ class Music(commands.Cog):
             try:
                 await interaction.followup.send(f"發生錯誤：{str(e)}", ephemeral=True)
             except discord.errors.HTTPException:
-                # 如果交互已經超時，則直接在頻道中發送消息
                 if interaction.channel:
                     await interaction.channel.send(f"發生錯誤：{str(e)}")
 
