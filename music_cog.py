@@ -86,9 +86,16 @@ class Music(commands.Cog):
         self.disabled = False
         
         # 檢查 cookies 文件
-        cookies_path = os.path.join(os.path.dirname(__file__), 'youtube.cookies')
-        if not os.path.exists(cookies_path):
-            self.logger.warning("找不到 cookies 文件，某些影片可能無法播放")
+        cookies_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'youtube.cookies'))
+        self.logger.info(f"正在檢查 cookies 文件: {cookies_path}")
+        
+        if os.path.exists(cookies_path):
+            self.logger.info("找到 cookies 文件")
+            with open(cookies_path, 'r', encoding='utf-8') as f:
+                first_line = f.readline().strip()
+                self.logger.info(f"Cookies 文件第一行: {first_line}")
+        else:
+            self.logger.warning(f"找不到 cookies 文件: {cookies_path}")
         
         # 設定 yt-dlp 選項
         self.YDL_OPTIONS = {
@@ -102,19 +109,15 @@ class Music(commands.Cog):
             'prefer_ffmpeg': True,
             'keepvideo': False,
             'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_skip': ['webpage', 'configs'],
-                    'skip': ['webpage']
-                }
-            }
+            'quiet': False,  # 開啟詳細輸出以便診斷
+            'no_warnings': False,  # 開啟警告訊息以便診斷
+            'verbose': True  # 開啟詳細輸出
         }
         
         # 如果存在 cookies 文件，則添加到選項中
         if os.path.exists(cookies_path):
             self.YDL_OPTIONS['cookies'] = cookies_path
+            self.logger.info("已將 cookies 文件添加到 yt-dlp 選項中")
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
@@ -249,7 +252,10 @@ class Music(commands.Cog):
         await interaction.response.defer()
 
         try:
+            self.logger.info(f"開始搜尋: {query}")
+            self.logger.info(f"使用的 yt-dlp 選項: {self.YDL_OPTIONS}")
             videos = self.search_youtube(query)
+            self.logger.info(f"搜尋結果: {len(videos)} 個影片")
         except Exception as e:
             await interaction.followup.send("搜尋時發生錯誤！", ephemeral=True)
             return
