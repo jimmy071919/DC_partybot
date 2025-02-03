@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 import logging
 import shutil
 import json
+import base64
+import tempfile
 
 # 載入環境變數
 load_dotenv()
@@ -85,17 +87,28 @@ class Music(commands.Cog):
         self.logger.info(f"找到 ffmpeg: {ffmpeg_path}")
         self.disabled = False
         
-        # 檢查 cookies 文件
-        cookies_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'youtube.cookies'))
-        self.logger.info(f"正在檢查 cookies 文件: {cookies_path}")
+        # 從環境變數獲取 cookies 內容
+        cookies_content = os.getenv('YOUTUBE_COOKIES')
+        cookies_file = None
         
-        if os.path.exists(cookies_path):
-            self.logger.info("找到 cookies 文件")
-            with open(cookies_path, 'r', encoding='utf-8') as f:
-                first_line = f.readline().strip()
-                self.logger.info(f"Cookies 文件第一行: {first_line}")
+        if cookies_content:
+            try:
+                # 解碼 base64 內容
+                decoded_cookies = base64.b64decode(cookies_content).decode('utf-8')
+                
+                # 創建臨時文件
+                temp_dir = tempfile.gettempdir()
+                cookies_file = os.path.join(temp_dir, 'youtube.cookies')
+                
+                # 寫入 cookies 內容
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(decoded_cookies)
+                
+                self.logger.info(f"已創建臨時 cookies 文件: {cookies_file}")
+            except Exception as e:
+                self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
         else:
-            self.logger.warning(f"找不到 cookies 文件: {cookies_path}")
+            self.logger.warning("環境變數中未找到 YOUTUBE_COOKIES")
         
         # 設定 yt-dlp 選項
         self.YDL_OPTIONS = {
@@ -109,15 +122,18 @@ class Music(commands.Cog):
             'prefer_ffmpeg': True,
             'keepvideo': False,
             'noplaylist': True,
-            'quiet': False,  # 開啟詳細輸出以便診斷
-            'no_warnings': False,  # 開啟警告訊息以便診斷
-            'verbose': True  # 開啟詳細輸出
+            'quiet': False,
+            'no_warnings': False,
+            'verbose': True,
+            'extract_flat': True,  # 只提取元數據
+            'force_generic_extractor': False,  # 使用專門的提取器
+            'youtube_include_dash_manifest': False  # 不包含 DASH manifest
         }
         
-        # 如果存在 cookies 文件，則添加到選項中
-        if os.path.exists(cookies_path):
-            self.YDL_OPTIONS['cookies'] = cookies_path
-            self.logger.info("已將 cookies 文件添加到 yt-dlp 選項中")
+        # 如果找到 cookies 文件，則添加到選項中
+        if cookies_file and os.path.exists(cookies_file):
+            self.YDL_OPTIONS['cookies'] = cookies_file
+            self.logger.info(f"已將 cookies 文件添加到 yt-dlp 選項中: {cookies_file}")
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
