@@ -109,6 +109,10 @@ class Music(commands.Cog):
             'retries': 10
         }
 
+    def get_queue(self, guild_id: int) -> MusicQueue:
+        """獲取或創建伺服器的音樂佇列"""
+        return self.queues[guild_id]
+
     async def ensure_voice_connected(self, ctx) -> bool:
         """確保語音連接成功建立"""
         retry_count = 0
