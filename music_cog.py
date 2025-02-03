@@ -96,6 +96,9 @@ class Music(commands.Cog):
             'prefer_ffmpeg': True,
             'keepvideo': False,
             'noplaylist': True,
+            'cookiesfrombrowser': ('chrome',),  # 從 Chrome 瀏覽器獲取 cookies
+            'quiet': True,  # 減少輸出訊息
+            'no_warnings': True  # 不顯示警告訊息
         }
 
     def get_queue(self, guild_id: int) -> MusicQueue:
@@ -227,10 +230,13 @@ class Music(commands.Cog):
             await interaction.response.send_message("請先加入語音頻道！", ephemeral=True)
             return
 
+        # 先發送延遲回應
+        await interaction.response.defer()
+
         try:
             videos = self.search_youtube(query)
         except Exception as e:
-            await interaction.response.send_message("搜尋時發生錯誤！", ephemeral=True)
+            await interaction.followup.send("搜尋時發生錯誤！", ephemeral=True)
             return
 
         embed = discord.Embed(title="YouTube 搜尋結果", color=discord.Color.blue())
@@ -323,10 +329,7 @@ class Music(commands.Cog):
                     child.disabled = True
 
         view = SongSelectView(videos, self)
-        try:
-            await interaction.response.send_message(embed=embed, view=view)
-        except discord.errors.InteractionResponded:
-            await interaction.followup.send(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="queue", description="顯示目前的播放佇列")
     async def show_queue(self, interaction: discord.Interaction):
