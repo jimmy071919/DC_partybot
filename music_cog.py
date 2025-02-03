@@ -6,8 +6,7 @@ from discord.ext import commands
 import tempfile
 import os
 import base64
-import aiohttp
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from collections import defaultdict
 from googleapiclient.discovery import build
 
@@ -28,63 +27,87 @@ class MusicQueue:
         self.current = self.queue.pop(0)
         return self.current
 
+class SongSelectView(discord.ui.View):
+    def __init__(self, videos: List[Dict], cog, ctx: commands.Context):
+        super().__init__(timeout=30.0)
+        self.videos = videos
+        self.cog = cog
+        self.ctx = ctx
+        self.selected_song = None
+        
+        # 只顯示前5個結果的按鈕
+        for i in range(min(5, len(videos))):
+            button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
+                label=str(i + 1),
+                custom_id=str(i)
+            )
+            button.callback = self.create_callback(i)
+            self.add_item(button)
+
+    def create_callback(self, index: int):
+        async def button_callback(interaction: discord.Interaction):
+            if interaction.user != self.ctx.author:
+                await interaction.response.send_message("只有發起播放的用戶可以選擇歌曲！", ephemeral=True)
+                return
+                
+            self.selected_song = self.videos[index]
+            self.stop()
+            
+            # 禁用所有按鈕
+            for item in self.children:
+                item.disabled = True
+            await interaction.response.edit_message(view=self)
+            
+            # 獲取佇列
+            queue = self.cog.get_queue(interaction.guild.id)
+            
+            # 添加到佇列
+            queue.add(self.selected_song)
+            
+            # 如果沒有正在播放，則開始播放
+            if not queue.is_playing:
+                await self.cog.play_next(interaction.guild.id, self.ctx)
+            else:
+                # 如果已經在播放，則發送已加入佇列的消息
+                embed = discord.Embed(
+                    title="🎵 已加入播放佇列",
+                    description=self.selected_song['title'],
+                    color=discord.Color.green()
+                )
+                await interaction.followup.send(embed=embed)
+                
+        return button_callback
+
+    async def on_timeout(self):
+        # 禁用所有按鈕
+        for item in self.children:
+            item.disabled = True
+        # 注意：這裡需要一個有效的 interaction 來更新消息
+        if hasattr(self, 'message'):
+            await self.message.edit(view=self)
+
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.queues = defaultdict(MusicQueue)
         self.logger = logging.getLogger(__name__)
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
-        self.invidious_instances = [
-            'https://invidious.snopyta.org',
-            'https://invidious.kavin.rocks',
-            'https://vid.puffyan.us',
-            'https://yt.artemislena.eu',
-            'https://invidious.namazso.eu'
-        ]
-        self.session = aiohttp.ClientSession()
-
-    def cog_unload(self):
-        """當 Cog 被卸載時關閉 session"""
-        asyncio.create_task(self.session.close())
-
-    def get_queue(self, guild_id: int) -> MusicQueue:
-        """獲取或創建伺服器的音樂佇列"""
-        return self.queues[guild_id]
-
-    async def get_video_info(self, video_id: str) -> Optional[Dict[str, Any]]:
-        """從 invidious API 獲取影片資訊"""
-        for instance in self.invidious_instances:
-            try:
-                self.logger.info(f"嘗試從 {instance} 獲取影片資訊")
-                async with self.session.get(f"{instance}/api/v1/videos/{video_id}", timeout=10) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        self.logger.info(f"成功從 {instance} 獲取影片資訊")
-                        return data
-            except Exception as e:
-                self.logger.error(f"從 {instance} 獲取影片資訊時發生錯誤: {str(e)}")
-                continue
-        return None
-
-    async def get_audio_url(self, video_id: str) -> Optional[str]:
-        """從 invidious API 獲取音訊 URL"""
-        video_info = await self.get_video_info(video_id)
-        if not video_info:
-            return None
-
-        # 獲取可用的音訊格式
-        adaptiveFormats = video_info.get('adaptiveFormats', [])
-        audio_formats = [f for f in adaptiveFormats if f.get('type', '').startswith('audio/')]
         
-        if not audio_formats:
-            return None
-
-        # 按照比特率排序，選擇最高品質的音訊
-        audio_formats.sort(key=lambda x: x.get('bitrate', 0), reverse=True)
-        best_audio = audio_formats[0]
-        
-        self.logger.info(f"已選擇音訊格式: {best_audio.get('type')} ({best_audio.get('bitrate')})")
-        return best_audio.get('url')
+        # 設置 yt-dlp 選項
+        self.ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'force_generic_extractor': False,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'no_color': True,
+            'geo_bypass': True,
+            'socket_timeout': 30,
+            'retries': 10
+        }
 
     async def ensure_voice_connected(self, ctx) -> bool:
         """確保語音連接成功建立"""
@@ -142,6 +165,25 @@ class Music(commands.Cog):
             if queue.voice_client and not queue.voice_client.is_playing():
                 asyncio.create_task(self.play_next(guild_id))
 
+    async def get_audio_url(self, url: str) -> Optional[Dict[str, str]]:
+        """使用 yt-dlp 獲取音訊 URL"""
+        try:
+            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+                info = await asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    lambda: ydl.extract_info(url, download=False)
+                )
+                if not info:
+                    return None
+                    
+                return {
+                    'url': info['url'],
+                    'title': info['title']
+                }
+        except Exception as e:
+            self.logger.error(f"獲取音訊 URL 時發生錯誤: {str(e)}")
+            return None
+
     async def play_next(self, guild_id: int, ctx = None):
         """播放下一首歌曲"""
         queue = self.get_queue(guild_id)
@@ -159,12 +201,9 @@ class Music(commands.Cog):
             try:
                 self.logger.info(f"準備播放: {next_song['title']} ({next_song['url']})")
                 
-                # 從 URL 中提取影片 ID
-                video_id = next_song['url'].split('watch?v=')[-1]
-                
                 # 獲取音訊 URL
-                audio_url = await self.get_audio_url(video_id)
-                if not audio_url:
+                audio_info = await self.get_audio_url(next_song['url'])
+                if not audio_info:
                     raise Exception("無法獲取音訊 URL")
                 
                 self.logger.info("成功獲取音訊 URL")
@@ -176,7 +215,7 @@ class Music(commands.Cog):
                 }
                 
                 source = await discord.FFmpegOpusAudio.from_probe(
-                    audio_url,
+                    audio_info['url'],
                     **FFMPEG_OPTIONS
                 )
                 
@@ -190,7 +229,7 @@ class Music(commands.Cog):
                 if ctx:
                     embed = discord.Embed(
                         title="🎵 正在播放",
-                        description=next_song['title'],
+                        description=audio_info['title'],
                         color=discord.Color.green()
                     )
                     await ctx.reply(embed=embed)
@@ -231,7 +270,7 @@ class Music(commands.Cog):
             search_response = self.youtube.search().list(
                 q=query,
                 part='id,snippet',
-                maxResults=10,
+                maxResults=5,
                 type='video'
             ).execute()
             
@@ -241,24 +280,35 @@ class Music(commands.Cog):
             
             self.logger.info(f"使用 YouTube API 搜尋到 {len(search_response['items'])} 個影片")
             
-            # 獲取第一個搜尋結果
-            video = search_response['items'][0]
-            video_id = video['id']['videoId']
-            video_title = video['snippet']['title']
-            video_url = f'https://www.youtube.com/watch?v={video_id}'
+            # 創建搜尋結果列表
+            videos = []
+            for item in search_response['items']:
+                video_id = item['id']['videoId']
+                video_title = item['snippet']['title']
+                video_url = f'https://www.youtube.com/watch?v={video_id}'
+                videos.append({
+                    'title': video_title,
+                    'url': video_url
+                })
             
-            # 將歌曲加入佇列
-            queue = self.get_queue(ctx.guild.id)
-            queue.add({
-                'title': video_title,
-                'url': video_url
-            })
+            # 創建嵌入式消息顯示搜索結果
+            embed = discord.Embed(
+                title="🎵 YouTube 搜尋結果",
+                description="請選擇要播放的歌曲：",
+                color=discord.Color.blue()
+            )
             
-            # 如果沒有正在播放的歌曲，開始播放
-            if not queue.is_playing:
-                await self.play_next(ctx.guild.id, ctx)
-            else:
-                await ctx.reply(f"已將 {video_title} 加入播放佇列！", ephemeral=True)
+            for i, video in enumerate(videos, 1):
+                embed.add_field(
+                    name=f"{i}. {video['title']}", 
+                    value=f"[點擊觀看]({video['url']})", 
+                    inline=False
+                )
+            
+            # 創建並發送選擇視圖
+            view = SongSelectView(videos, self, ctx)
+            message = await ctx.reply(embed=embed, view=view)
+            view.message = message  # 保存消息引用以便稍後更新
             
         except Exception as e:
             self.logger.error(f"播放指令發生錯誤: {str(e)}")
