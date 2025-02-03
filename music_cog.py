@@ -10,7 +10,7 @@ import json
 import base64
 import tempfile
 import shutil
-from typing import List, Dict
+from typing import List, Dict, Optional
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
@@ -19,40 +19,38 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class MusicQueue:
+    """音樂佇列類"""
     def __init__(self):
         self.queue = []
         self.current = None
         self.voice_client = None
         self.is_playing = False
-        self.volume = 1.0  # 新增音量控制
-        self._loop = False  # 新增循環播放控制
+        self.volume = 1.0
+        self.loop = False
 
     @property
     def is_empty(self):
         return len(self.queue) == 0
 
-    @property
-    def loop(self):
-        return self._loop
-
-    @loop.setter
-    def loop(self, value: bool):
-        self._loop = value
-
     def add(self, song):
         self.queue.append(song)
 
-    def get_next(self):
-        if not self.queue:
+    def get_next(self) -> Optional[Dict]:
+        """獲取下一首要播放的歌曲"""
+        if self.loop and self.current:
+            return self.current
+        elif not self.queue:
             return None
-        if self._loop and self.current:
-            self.queue.append(self.current)
-        return self.queue.pop(0)
+        else:
+            self.current = self.queue.pop(0)
+            return self.current
 
     def clear(self):
+        """清空佇列"""
         self.queue.clear()
         self.current = None
-        self._loop = False
+        self.is_playing = False
+        self.loop = False
 
     def skip(self):
         if self.voice_client and self.voice_client.is_playing():
@@ -457,114 +455,75 @@ class Music(commands.Cog):
             await interaction.response.send_message("你需要先加入一個語音頻道！", ephemeral=True)
 
     @app_commands.command(name="play", description="播放指定關鍵字的音樂")
-    async def play(self, interaction: discord.Interaction, query: str):
+    async def play(self, interaction: discord.Interaction, *, query: str):
+        """播放音樂"""
+        # 檢查用戶是否在語音頻道中
         if not interaction.user.voice:
-            await interaction.response.send_message("請先加入語音頻道！", ephemeral=True)
+            await interaction.response.send_message("你必須先加入一個語音頻道！", ephemeral=True)
             return
-
-        # 先發送延遲回應
-        await interaction.response.defer()
+            
+        # 檢查機器人是否有權限加入語音頻道
+        permissions = interaction.user.voice.channel.permissions_for(interaction.guild.me)
+        if not permissions.connect or not permissions.speak:
+            await interaction.response.send_message("我沒有權限加入該語音頻道！", ephemeral=True)
+            return
 
         try:
-            self.logger.info(f"開始搜尋: {query}")
-            self.logger.info(f"使用的 yt-dlp 選項: {self.YDL_OPTIONS}")
-            videos = await self.search_youtube(query)
-            self.logger.info(f"搜尋結果: {len(videos)} 個影片")
+            # 延遲響應，因為搜索可能需要一些時間
+            await interaction.response.defer(ephemeral=False)
+            
+            # 確保機器人在語音頻道中
+            if not interaction.guild.voice_client:
+                await interaction.user.voice.channel.connect()
+            elif interaction.guild.voice_client.channel != interaction.user.voice.channel:
+                await interaction.followup.send("我已經在另一個語音頻道中了！", ephemeral=True)
+                return
+
+            # 獲取或創建音樂佇列
+            queue = self.get_queue(interaction.guild.id)
+            
+            # 搜索視頻
+            try:
+                videos = await self.search_youtube(query)
+                if not videos:
+                    await interaction.followup.send("找不到相關影片！", ephemeral=True)
+                    return
+                    
+                video = videos[0]  # 使用第一個搜索結果
+                video['requester'] = interaction.user.display_name
+                
+            except Exception as e:
+                self.logger.error(f"搜索時發生錯誤: {str(e)}")
+                await interaction.followup.send(f"搜索時發生錯誤：{str(e)}", ephemeral=True)
+                return
+
+            # 添加到佇列
+            queue.queue.append(video)
+            
+            # 如果沒有正在播放，則開始播放
+            if not queue.is_playing:
+                await self.play_next(interaction.guild.id, interaction)
+            else:
+                # 如果已經在播放，則發送已加入佇列的消息
+                embed = discord.Embed(
+                    title="🎵 已加入播放佇列",
+                    description=video['title'],
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="請求者",
+                    value=video['requester']
+                )
+                await interaction.followup.send(embed=embed)
+
         except Exception as e:
-            await interaction.followup.send("搜尋時發生錯誤！", ephemeral=True)
-            return
-
-        embed = discord.Embed(title="YouTube 搜尋結果", color=discord.Color.blue())
-        for i, video in enumerate(videos):
-            embed.add_field(
-                name=f"{i+1}. {html.unescape(video['title'])}", 
-                value=f"頻道: {video['channel']}\n[點擊觀看]({video['url']})", 
-                inline=False
-            )
-
-        class SongSelectView(discord.ui.View):
-            def __init__(self, videos, cog):
-                super().__init__(timeout=30.0)
-                self.videos = videos
-                self.cog = cog
-                self.selected_song = None
-
-            @discord.ui.button(label="1", style=discord.ButtonStyle.primary)
-            async def button1_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 0)
-
-            @discord.ui.button(label="2", style=discord.ButtonStyle.primary)
-            async def button2_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 1)
-
-            @discord.ui.button(label="3", style=discord.ButtonStyle.primary)
-            async def button3_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 2)
-
-            @discord.ui.button(label="4", style=discord.ButtonStyle.primary)
-            async def button4_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 3)
-
-            @discord.ui.button(label="5", style=discord.ButtonStyle.primary)
-            async def button5_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 4)
-
-            @discord.ui.button(label="6", style=discord.ButtonStyle.primary)
-            async def button6_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 5)
-
-            @discord.ui.button(label="7", style=discord.ButtonStyle.primary)
-            async def button7_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 6)
-
-            @discord.ui.button(label="8", style=discord.ButtonStyle.primary)
-            async def button8_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 7)
-
-            @discord.ui.button(label="9", style=discord.ButtonStyle.primary)
-            async def button9_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 8)
-
-            @discord.ui.button(label="10", style=discord.ButtonStyle.primary)
-            async def button10_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.handle_button_click(interaction, 9)
-
-            async def handle_button_click(self, interaction: discord.Interaction, index: int):
-                self.selected_song = self.videos[index]
-                self.stop()
-                await self.handle_song_selection(interaction)
-
-            async def handle_song_selection(self, interaction: discord.Interaction):
-                if interaction.guild_id not in self.cog.queues:
-                    self.cog.queues[interaction.guild_id] = MusicQueue()
-                
-                queue = self.cog.queues[interaction.guild_id]
-                
-                song = {
-                    "title": html.unescape(self.selected_song["title"]),
-                    "url": self.selected_song["url"]
-                }
-                
-                if not queue.voice_client or not queue.voice_client.is_connected():
-                    try:
-                        queue.voice_client = await interaction.user.voice.channel.connect()
-                    except discord.ClientException:
-                        queue.voice_client = interaction.guild.voice_client
-                
-                queue.add(song)
-                
-                if not queue.is_playing:
-                    await interaction.response.send_message(f"🎵 即將播放：{song['title']}")
-                    await self.cog.play_next(interaction.guild_id, interaction)
-                else:
-                    await interaction.response.send_message(f"🎵 已加入播放佇列：{song['title']}")
-
-            async def on_timeout(self):
-                for child in self.children:
-                    child.disabled = True
-
-        view = SongSelectView(videos, self)
-        await interaction.followup.send(embed=embed, view=view)
+            self.logger.error(f"播放命令發生錯誤: {str(e)}")
+            try:
+                await interaction.followup.send(f"發生錯誤：{str(e)}", ephemeral=True)
+            except discord.errors.HTTPException:
+                # 如果交互已經超時，則直接在頻道中發送消息
+                if interaction.channel:
+                    await interaction.channel.send(f"發生錯誤：{str(e)}")
 
     @app_commands.command(name="queue", description="顯示目前的播放佇列")
     async def show_queue(self, interaction: discord.Interaction):
