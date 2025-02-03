@@ -155,8 +155,6 @@ class Music(commands.Cog):
             'no_warnings': True,
             'extract_flat': False,
             'force_generic_extractor': False,
-            'youtube_include_dash_manifest': False,
-            'nocheckcertificate': True,
             'ignoreerrors': True,
             'no_color': True,
             'geo_bypass': True,
@@ -418,72 +416,52 @@ class Music(commands.Cog):
     async def search_youtube(self, query: str) -> List[Dict]:
         """搜尋 YouTube 影片"""
         try:
-            # 首先嘗試使用 YouTube Data API 搜尋
-            youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+            # 首先嘗試使用 YouTube API
+            if self.youtube:
+                try:
+                    self.logger.info(f"使用 YouTube API 搜尋: {query}")
+                    request = self.youtube.search().list(
+                        part="snippet",
+                        q=query,
+                        type="video",
+                        maxResults=10
+                    )
+                    response = request.execute()
+                    
+                    if not response.get('items'):
+                        self.logger.warning("YouTube API 未返回任何結果")
+                        return []
+                        
+                    videos = []
+                    for item in response['items']:
+                        video_id = item['id']['videoId']
+                        title = html.unescape(item['snippet']['title'])  # 解碼 HTML 實體
+                        videos.append({
+                            'title': title,
+                            'url': f'https://www.youtube.com/watch?v={video_id}',
+                            'webpage_url': f'https://www.youtube.com/watch?v={video_id}'
+                        })
+                    
+                    self.logger.info(f"使用 YouTube API 搜尋到 {len(videos)} 個影片")
+                    return videos
+                    
+                except Exception as e:
+                    self.logger.error(f"YouTube API 搜尋失敗: {str(e)}")
+                    # 如果 API 失敗，回退到使用 yt-dlp
+                    
+            # 使用 yt-dlp 作為備用方案
+            self.logger.info(f"使用 yt-dlp 搜尋: {query}")
             
-            # 執行搜尋
-            search_response = youtube.search().list(
-                q=query,
-                part='id,snippet',
-                maxResults=10,
-                type='video'
-            ).execute()
-
-            videos = []
-            for item in search_response.get('items', []):
-                if item['id']['kind'] == 'youtube#video':
-                    video_id = item['id']['videoId']
-                    title = item['snippet']['title']
-                    url = f"https://www.youtube.com/watch?v={video_id}"
-                    videos.append({
-                        'url': url,
-                        'title': title,
-                        'duration': 'N/A'  # YouTube API v3 不直接提供時長
-                    })
-
-            self.logger.info(f"使用 YouTube API 搜尋到 {len(videos)} 個影片")
-            return videos
-
-        except HttpError as e:
-            self.logger.error(f"YouTube API 搜尋失敗: {str(e)}")
-            
-            # 如果 API 搜尋失敗，回退到 yt-dlp
-            self.logger.info("回退到 yt-dlp 搜尋...")
-            
-            # 使用修改後的 yt-dlp 選項進行搜尋
             search_opts = {
                 'format': 'bestaudio/best',
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': True,
-                'skip_download': True,
-                'force_generic_extractor': True,
+                'extract_flat': False,
+                'force_generic_extractor': False,
                 'ignoreerrors': True,
                 'no_color': True,
                 'geo_bypass': True,
-                'socket_timeout': 30,
-                'retries': 10,
-                'extractor_args': {
-                    'youtube': {
-                        'skip': ['dash', 'hls'],
-                        'player_skip': ['js', 'configs', 'webpage']
-                    }
-                },
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Sec-Fetch-Dest': 'document',
-                    'Origin': 'https://www.youtube.com',
-                    'Referer': 'https://www.youtube.com/'
-                }
             }
-
-            # 如果有 cookies，添加到搜尋選項中
-            if 'cookies' in self.YDL_OPTIONS:
-                search_opts['cookies'] = self.YDL_OPTIONS['cookies']
 
             with yt_dlp.YoutubeDL(search_opts) as ydl:
                 try:
@@ -491,24 +469,93 @@ class Music(commands.Cog):
                     results = ydl.extract_info(f"ytsearch{10}:{query}", download=False)
                     
                     if not results:
-                        self.logger.error("搜尋結果為空")
+                        self.logger.warning("yt-dlp 未返回任何結果")
                         return []
-
+                        
                     videos = []
                     for entry in results['entries']:
                         if entry:
+                            title = html.unescape(entry.get('title', 'Unknown Title'))  # 解碼 HTML 實體
                             videos.append({
-                                'url': f"https://www.youtube.com/watch?v={entry['id']}",
-                                'title': entry.get('title', 'Unknown'),
-                                'duration': entry.get('duration_string', 'N/A')
+                                'title': title,
+                                'url': entry.get('webpage_url', ''),
+                                'webpage_url': entry.get('webpage_url', '')
                             })
-
-                    self.logger.info(f"搜尋結果: {len(videos)} 個影片")
+                    
+                    self.logger.info(f"使用 yt-dlp 搜尋到 {len(videos)} 個影片")
                     return videos
-
+                    
                 except Exception as e:
                     self.logger.error(f"yt-dlp 搜尋失敗: {str(e)}")
                     return []
+                    
+        except Exception as e:
+            self.logger.error(f"搜尋過程發生錯誤: {str(e)}")
+            return []
+
+    class SongSelectView(discord.ui.View):
+        def __init__(self, videos: List[Dict], cog):
+            super().__init__(timeout=30.0)
+            self.videos = videos
+            self.cog = cog
+            self.selected_song = None
+            
+            # 只顯示前5個結果的按鈕
+            for i in range(min(5, len(videos))):
+                button = discord.ui.Button(
+                    style=discord.ButtonStyle.primary,
+                    label=str(i + 1),
+                    custom_id=str(i)
+                )
+                button.callback = self.create_callback(i)
+                self.add_item(button)
+
+        def create_callback(self, index: int):
+            async def button_callback(interaction: discord.Interaction):
+                if interaction.user != self.cog.original_user:
+                    await interaction.response.send_message("只有發起播放的用戶可以選擇歌曲！", ephemeral=True)
+                    return
+                    
+                self.selected_song = self.videos[index]
+                self.selected_song['requester'] = interaction.user.display_name
+                self.stop()
+                
+                # 禁用所有按鈕
+                for item in self.children:
+                    item.disabled = True
+                await interaction.response.edit_message(view=self)
+                
+                # 獲取佇列
+                queue = self.cog.get_queue(interaction.guild.id)
+                
+                # 添加到佇列
+                queue.queue.append(self.selected_song)
+                
+                # 如果沒有正在播放，則開始播放
+                if not queue.is_playing:
+                    await self.cog.play_next(interaction.guild.id, interaction)
+                else:
+                    # 如果已經在播放，則發送已加入佇列的消息
+                    embed = discord.Embed(
+                        title="🎵 已加入播放佇列",
+                        description=self.selected_song['title'],
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="請求者",
+                        value=self.selected_song['requester']
+                    )
+                    await interaction.followup.send(embed=embed)
+                    
+            return button_callback
+
+        async def on_timeout(self):
+            # 禁用所有按鈕
+            for item in self.children:
+                item.disabled = True
+            # 注意：這裡需要一個有效的 interaction 來更新消息
+            if self.message:
+                await self.message.edit(view=self)
 
     @app_commands.command(name="join", description="讓機器人加入用戶所在的語音頻道")
     async def join(self, interaction: discord.Interaction):
@@ -556,42 +603,40 @@ class Music(commands.Cog):
                 await interaction.followup.send("無法建立語音連接，請稍後再試！", ephemeral=True)
                 return
 
-            # 獲取或創建音樂佇列
-            queue = self.get_queue(interaction.guild.id)
-            
             # 搜索視頻
             try:
                 videos = await self.search_youtube(query)
                 if not videos:
                     await interaction.followup.send("找不到相關影片！", ephemeral=True)
                     return
-                    
-                video = videos[0]  # 使用第一個搜索結果
-                video['requester'] = interaction.user.display_name
+
+                # 創建嵌入式消息顯示搜索結果
+                embed = discord.Embed(
+                    title="🎵 YouTube 搜尋結果",
+                    description="請選擇要播放的歌曲：",
+                    color=discord.Color.blue()
+                )
                 
+                # 只顯示前5個結果
+                for i, video in enumerate(videos[:5], 1):
+                    embed.add_field(
+                        name=f"{i}. {video['title']}", 
+                        value=f"[點擊觀看]({video['url']})", 
+                        inline=False
+                    )
+
+                # 保存原始用戶
+                self.original_user = interaction.user
+                
+                # 創建並發送選擇視圖
+                view = self.SongSelectView(videos, self)
+                message = await interaction.followup.send(embed=embed, view=view)
+                view.message = message  # 保存消息引用以便稍後更新
+
             except Exception as e:
                 self.logger.error(f"搜索時發生錯誤: {str(e)}")
                 await interaction.followup.send(f"搜索時發生錯誤：{str(e)}", ephemeral=True)
                 return
-
-            # 添加到佇列
-            queue.queue.append(video)
-            
-            # 如果沒有正在播放，則開始播放
-            if not queue.is_playing:
-                await self.play_next(interaction.guild.id, interaction)
-            else:
-                # 如果已經在播放，則發送已加入佇列的消息
-                embed = discord.Embed(
-                    title="🎵 已加入播放佇列",
-                    description=video['title'],
-                    color=discord.Color.green()
-                )
-                embed.add_field(
-                    name="請求者",
-                    value=video['requester']
-                )
-                await interaction.followup.send(embed=embed)
 
         except Exception as e:
             self.logger.error(f"播放命令發生錯誤: {str(e)}")
