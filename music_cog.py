@@ -89,7 +89,7 @@ class Music(commands.Cog):
         
         # 從環境變數獲取 cookies 內容
         cookies_content = os.getenv('YOUTUBE_COOKIES')
-        cookies_file = None
+        cookies_path = None
         
         if cookies_content:
             try:
@@ -98,13 +98,13 @@ class Music(commands.Cog):
                 
                 # 創建臨時文件
                 temp_dir = tempfile.gettempdir()
-                cookies_file = os.path.join(temp_dir, 'youtube.cookies')
+                cookies_path = os.path.join(temp_dir, 'youtube.cookies')
                 
                 # 寫入 cookies 內容
-                with open(cookies_file, 'w', encoding='utf-8') as f:
+                with open(cookies_path, 'w', encoding='utf-8') as f:
                     f.write(decoded_cookies)
                 
-                self.logger.info(f"已創建臨時 cookies 文件: {cookies_file}")
+                self.logger.info(f"已創建臨時 cookies 文件: {cookies_path}")
             except Exception as e:
                 self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
         else:
@@ -122,18 +122,34 @@ class Music(commands.Cog):
             'prefer_ffmpeg': True,
             'keepvideo': False,
             'noplaylist': True,
-            'quiet': False,
-            'no_warnings': False,
-            'verbose': True,
-            'extract_flat': True,  # 只提取元數據
-            'force_generic_extractor': False,  # 使用專門的提取器
-            'youtube_include_dash_manifest': False  # 不包含 DASH manifest
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,  # 不要只提取元數據
+            'force_generic_extractor': False,
+            'youtube_include_dash_manifest': False,
+            'cookiesfrombrowser': ('chrome',),  # 嘗試從瀏覽器獲取 cookies
+            'nocheckcertificate': True,  # 不檢查證書
+            'ignoreerrors': True,  # 忽略錯誤
+            'no_color': True,  # 禁用顏色輸出
+            'geo_bypass': True,  # 繞過地理限制
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['dash', 'hls'],  # 跳過某些格式
+                    'player_skip': ['js', 'configs', 'webpage']  # 跳過播放器相關內容
+                }
+            },
+            'http_headers': {  # 添加自定義 headers
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate'
+            }
         }
         
-        # 如果找到 cookies 文件，則添加到選項中
-        if cookies_file and os.path.exists(cookies_file):
-            self.YDL_OPTIONS['cookies'] = cookies_file
-            self.logger.info(f"已將 cookies 文件添加到 yt-dlp 選項中: {cookies_file}")
+        # 如果存在 cookies 文件，則添加到選項中
+        if cookies_path and os.path.exists(cookies_path):
+            self.YDL_OPTIONS['cookies'] = cookies_path
+            self.logger.info(f"已將 cookies 文件添加到 yt-dlp 選項中: {cookies_path}")
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
