@@ -500,27 +500,38 @@ class Music(commands.Cog):
     @app_commands.command(name="play", description="播放指定關鍵字的音樂")
     async def play(self, interaction: discord.Interaction, *, query: str):
         """播放音樂"""
-        # 檢查用戶是否在語音頻道中
-        if not interaction.user.voice:
-            await interaction.response.send_message("你必須先加入一個語音頻道！", ephemeral=True)
-            return
-            
-        # 檢查機器人是否有權限加入語音頻道
-        permissions = interaction.user.voice.channel.permissions_for(interaction.guild.me)
-        if not permissions.connect or not permissions.speak:
-            await interaction.response.send_message("我沒有權限加入該語音頻道！", ephemeral=True)
-            return
-
         try:
-            # 延遲響應，因為搜索可能需要一些時間
-            await interaction.response.defer(ephemeral=False)
-            
-            # 確保機器人在語音頻道中
-            if not interaction.guild.voice_client:
-                await interaction.user.voice.channel.connect()
-            elif interaction.guild.voice_client.channel != interaction.user.voice.channel:
-                await interaction.followup.send("我已經在另一個語音頻道中了！", ephemeral=True)
+            # 檢查用戶是否在語音頻道中
+            if not interaction.user.voice:
+                await interaction.response.send_message("你必須先加入一個語音頻道！", ephemeral=True)
                 return
+                
+            # 檢查機器人是否有權限加入語音頻道
+            permissions = interaction.user.voice.channel.permissions_for(interaction.guild.me)
+            if not permissions.connect or not permissions.speak:
+                await interaction.response.send_message("我沒有權限加入該語音頻道！", ephemeral=True)
+                return
+
+            # 檢查機器人是否已經在其他語音頻道中
+            if interaction.guild.voice_client:
+                if interaction.guild.voice_client.channel != interaction.user.voice.channel:
+                    await interaction.response.send_message("我已經在另一個語音頻道中了！", ephemeral=True)
+                    return
+            else:
+                # 如果機器人不在任何語音頻道中，則加入用戶的語音頻道
+                try:
+                    await interaction.user.voice.channel.connect()
+                except Exception as e:
+                    self.logger.error(f"加入語音頻道時發生錯誤: {str(e)}")
+                    await interaction.response.send_message(f"加入語音頻道時發生錯誤: {str(e)}", ephemeral=True)
+                    return
+
+            # 延遲響應，因為搜索可能需要一些時間
+            try:
+                await interaction.response.defer(ephemeral=False)
+            except discord.errors.InteractionResponded:
+                # 如果已經響應過了，就不需要再次延遲
+                pass
 
             # 獲取或創建音樂佇列
             queue = self.get_queue(interaction.guild.id)
@@ -682,29 +693,28 @@ class Music(commands.Cog):
         try:
             # 檢查機器人是否在語音頻道中
             if not interaction.guild.voice_client:
-                await interaction.response.send_message("機器人不在任何語音頻道內！", ephemeral=True)
+                await interaction.response.send_message("我沒有在任何語音頻道中！", ephemeral=True)
                 return
 
-            # 檢查用戶是否在同一個語音頻道
-            if not interaction.user.voice or interaction.user.voice.channel != interaction.guild.voice_client.channel:
-                await interaction.response.send_message("你必須在機器人所在的語音頻道內才能使用此命令！", ephemeral=True)
-                return
-
-            # 停止播放並清理隊列
-            if interaction.guild_id in self.queues:
-                queue = self.queues[interaction.guild_id]
-                if queue.voice_client and queue.voice_client.is_playing():
-                    queue.voice_client.stop()
+            # 清理佇列
+            queue = self.get_queue(interaction.guild.id)
+            if queue:
                 queue.clear()
-                del self.queues[interaction.guild_id]
 
             # 斷開連接
-            await interaction.guild.voice_client.disconnect()
-            await interaction.response.send_message("👋 機器人已離開語音頻道！")
+            await interaction.guild.voice_client.disconnect(force=True)
+            
+            try:
+                await interaction.response.send_message("👋 機器人已離開語音頻道！")
+            except discord.errors.InteractionResponded:
+                await interaction.followup.send("👋 機器人已離開語音頻道！")
             
         except Exception as e:
             self.logger.error(f"離開語音頻道時發生錯誤：{str(e)}")
-            await interaction.response.send_message("離開語音頻道時發生錯誤，請稍後再試！", ephemeral=True)
+            try:
+                await interaction.response.send_message("離開語音頻道時發生錯誤，請稍後再試！", ephemeral=True)
+            except discord.errors.InteractionResponded:
+                await interaction.followup.send("離開語音頻道時發生錯誤，請稍後再試！", ephemeral=True)
 
 async def setup(bot):
     """設置 Music cog"""
