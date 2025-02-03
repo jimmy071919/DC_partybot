@@ -96,6 +96,11 @@ class Music(commands.Cog):
                 # 解碼 base64 內容
                 decoded_cookies = base64.b64decode(cookies_content).decode('utf-8')
                 
+                # 確保 cookies 內容是正確的格式
+                if not decoded_cookies.startswith('# Netscape HTTP Cookie File'):
+                    self.logger.warning("Cookies 內容格式不正確，添加標頭")
+                    decoded_cookies = "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n" + decoded_cookies
+                
                 # 創建臨時文件
                 temp_dir = tempfile.gettempdir()
                 cookies_path = os.path.join(temp_dir, 'youtube.cookies')
@@ -113,8 +118,24 @@ class Music(commands.Cog):
                 except Exception as e:
                     self.logger.warning(f"設置 cookies 文件權限時發生錯誤: {str(e)}")
                     
+                # 驗證 cookies 文件
+                try:
+                    with open(cookies_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        self.logger.info(f"Cookies 文件大小: {len(content)} 字節")
+                        if len(content.strip()) == 0:
+                            self.logger.error("Cookies 文件為空")
+                except Exception as e:
+                    self.logger.error(f"驗證 cookies 文件時發生錯誤: {str(e)}")
+                    
             except Exception as e:
                 self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
+                if cookies_path and os.path.exists(cookies_path):
+                    try:
+                        os.remove(cookies_path)
+                        self.logger.info("已刪除無效的 cookies 文件")
+                    except Exception as e:
+                        self.logger.error(f"刪除無效的 cookies 文件時發生錯誤: {str(e)}")
         else:
             self.logger.warning("環境變數中未找到 YOUTUBE_COOKIES")
         
@@ -217,44 +238,75 @@ class Music(commands.Cog):
         queue.current = next_song
 
         try:
+            self.logger.info(f"準備播放: {next_song['url']}")
+            
+            # 檢查 cookies 文件
+            if 'cookies' in self.YDL_OPTIONS:
+                cookies_path = self.YDL_OPTIONS['cookies']
+                if os.path.exists(cookies_path):
+                    self.logger.info(f"Cookies 文件存在: {cookies_path}")
+                    try:
+                        with open(cookies_path, 'r', encoding='utf-8') as f:
+                            cookies_content = f.read()
+                            self.logger.info(f"Cookies 文件內容長度: {len(cookies_content)} 字節")
+                    except Exception as e:
+                        self.logger.error(f"讀取 cookies 文件時發生錯誤: {str(e)}")
+                else:
+                    self.logger.error(f"Cookies 文件不存在: {cookies_path}")
+            else:
+                self.logger.warning("未設置 cookies 文件")
+
             with yt_dlp.YoutubeDL(self.YDL_OPTIONS) as ydl:
-                info = ydl.extract_info(next_song['url'], download=False)
-                url = info['url']
+                try:
+                    self.logger.info("開始提取影片信息...")
+                    info = ydl.extract_info(next_song['url'], download=False)
+                    
+                    if info is None:
+                        raise Exception("無法獲取影片信息")
+                        
+                    if 'url' not in info:
+                        raise Exception(f"影片信息中沒有 URL: {info}")
+                        
+                    url = info['url']
+                    self.logger.info("成功獲取影片 URL")
 
-                def after_playing(error):
-                    if error:
-                        self.logger.error(f"播放錯誤：{error}")
-                    asyncio.run_coroutine_threadsafe(
-                        self.play_next(guild_id), 
-                        self.bot.loop
-                    )
+                    def after_playing(error):
+                        if error:
+                            self.logger.error(f"播放錯誤：{error}")
+                        asyncio.run_coroutine_threadsafe(
+                            self.play_next(guild_id), 
+                            self.bot.loop
+                        )
 
-                queue.voice_client.play(
-                    discord.FFmpegPCMAudio(url, executable='ffmpeg'),
-                    after=after_playing
-                )
-                queue.voice_client.source = discord.PCMVolumeTransformer(
-                    queue.voice_client.source,
-                    volume=queue.volume
-                )
-                queue.is_playing = True
+                    queue.voice_client.play(
+                        discord.FFmpegPCMAudio(url, executable='ffmpeg'),
+                        after=after_playing
+                    )
+                    queue.voice_client.source = discord.PCMVolumeTransformer(
+                        queue.voice_client.source,
+                        volume=queue.volume
+                    )
+                    queue.is_playing = True
 
-                if interaction and interaction.channel:
-                    title = html.unescape(next_song['title'])
-                    embed = discord.Embed(
-                        title="🎵 正在播放",
-                        description=title,
-                        color=discord.Color.green()
-                    )
-                    embed.add_field(
-                        name="長度", 
-                        value=f"{info.get('duration_string', 'N/A')}"
-                    )
-                    embed.add_field(
-                        name="請求者", 
-                        value=next_song.get('requester', 'Unknown')
-                    )
-                    await interaction.channel.send(embed=embed)
+                    if interaction and interaction.channel:
+                        title = html.unescape(next_song['title'])
+                        embed = discord.Embed(
+                            title="🎵 正在播放",
+                            description=title,
+                            color=discord.Color.green()
+                        )
+                        embed.add_field(
+                            name="長度", 
+                            value=f"{info.get('duration_string', 'N/A')}"
+                        )
+                        embed.add_field(
+                            name="請求者", 
+                            value=next_song.get('requester', 'Unknown')
+                        )
+                        await interaction.channel.send(embed=embed)
+                except Exception as e:
+                    self.logger.error(f"提取影片信息時發生錯誤: {str(e)}")
+                    raise
 
         except Exception as e:
             self.logger.error(f"播放錯誤：{str(e)}")
