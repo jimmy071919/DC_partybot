@@ -96,9 +96,14 @@ class Music(commands.Cog):
             'prefer_ffmpeg': True,
             'keepvideo': False,
             'noplaylist': True,
-            'cookiesfrombrowser': ('chrome',),  # 從 Chrome 瀏覽器獲取 cookies
-            'quiet': True,  # 減少輸出訊息
-            'no_warnings': True  # 不顯示警告訊息
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_skip': ['webpage', 'configs'],
+                    'skip': ['webpage']
+                }
+            }
         }
 
     def get_queue(self, guild_id: int) -> MusicQueue:
