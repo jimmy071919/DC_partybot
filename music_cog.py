@@ -10,7 +10,6 @@ import aiohttp
 from typing import Optional, Dict, Any
 from collections import defaultdict
 from googleapiclient.discovery import build
-from queue_manager import QueueManager
 
 class MusicQueue:
     def __init__(self):
