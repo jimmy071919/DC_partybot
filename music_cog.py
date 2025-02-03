@@ -323,7 +323,10 @@ class Music(commands.Cog):
                     child.disabled = True
 
         view = SongSelectView(videos, self)
-        await interaction.response.send_message(embed=embed, view=view)
+        try:
+            await interaction.response.send_message(embed=embed, view=view)
+        except discord.errors.InteractionResponded:
+            await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="queue", description="顯示目前的播放佇列")
     async def show_queue(self, interaction: discord.Interaction):
