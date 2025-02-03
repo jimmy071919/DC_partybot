@@ -283,16 +283,17 @@ class Music(commands.Cog):
                 
                 # 設置 yt-dlp 選項
                 ydl_opts = {
-                    'format': 'bestaudio',
-                    'quiet': True,
-                    'no_warnings': True,
+                    'format': 'bestaudio/best',
+                    'quiet': False,  # 開啟詳細輸出
+                    'no_warnings': False,  # 顯示警告
                     'extract_flat': False,
                     'force_generic_extractor': False,
-                    'ignoreerrors': True,
+                    'ignoreerrors': False,  # 不忽略錯誤
                     'no_color': True,
                     'geo_bypass': True,
                     'socket_timeout': 30,
                     'retries': 10,
+                    'verbose': True,  # 開啟詳細日誌
                     'nocheckcertificate': True,
                     'http_headers': {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -307,6 +308,9 @@ class Music(commands.Cog):
                 # 使用 yt-dlp 提取影片資訊
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     try:
+                        # 添加更多日誌
+                        self.logger.info(f"使用的 yt-dlp 選項: {ydl_opts}")
+                        
                         info = await asyncio.get_event_loop().run_in_executor(
                             None, 
                             lambda: ydl.extract_info(next_song['url'], download=False)
@@ -314,6 +318,10 @@ class Music(commands.Cog):
                         
                         if not info:
                             raise Exception("無法獲取影片資訊")
+                        
+                        # 記錄獲取到的資訊
+                        self.logger.info(f"成功獲取影片資訊: {info.get('title', 'unknown title')}")
+                        self.logger.info(f"可用格式數量: {len(info.get('formats', []))}")
                         
                         # 獲取最佳音訊格式的 URL
                         formats = info.get('formats', [])
@@ -325,25 +333,37 @@ class Music(commands.Cog):
                         if not audio_formats:
                             raise Exception("無法找到可用的音訊格式")
                         
+                        # 記錄音訊格式資訊
+                        self.logger.info(f"找到 {len(audio_formats)} 個音訊格式")
+                        for i, fmt in enumerate(audio_formats):
+                            self.logger.info(f"格式 {i+1}: {fmt.get('format_id')} - {fmt.get('abr')}kbps")
+                        
                         # 按照比特率排序，選擇最高品質的音訊
                         audio_formats.sort(key=lambda f: f.get('abr', 0), reverse=True)
                         best_audio = audio_formats[0]
                         
                         self.logger.info(f"已選擇音訊格式: {best_audio.get('format_id')} ({best_audio.get('abr')}kbps)")
+                        self.logger.info(f"音訊 URL: {best_audio.get('url', '無法獲取URL')[:100]}...")  # 只記錄 URL 的前 100 個字符
                         
                         # 播放音訊
                         FFMPEG_OPTIONS = {
-                            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel debug',  # 添加 ffmpeg 詳細日誌
                             'options': '-vn'
                         }
+                        
+                        self.logger.info(f"使用的 FFMPEG 選項: {FFMPEG_OPTIONS}")
                         
                         source = await discord.FFmpegOpusAudio.from_probe(
                             best_audio['url'],
                             **FFMPEG_OPTIONS
                         )
                         
+                        self.logger.info("成功創建音訊源")
+                        
                         queue.voice_client.play(source, after=lambda e: self.after_playing(e))
                         queue.is_playing = True
+                        
+                        self.logger.info("開始播放音訊")
                         
                         if interaction:
                             embed = discord.Embed(
@@ -355,14 +375,19 @@ class Music(commands.Cog):
                         
                     except Exception as e:
                         self.logger.error(f"提取影片資訊時發生錯誤: {str(e)}")
+                        self.logger.error(f"錯誤類型: {type(e).__name__}")
+                        self.logger.error(f"完整錯誤訊息: {str(e)}")
+                        if hasattr(e, '__traceback__'):
+                            import traceback
+                            self.logger.error(f"錯誤堆疊: {''.join(traceback.format_tb(e.__traceback__))}")
                         if interaction:
-                            await interaction.followup.send(f"無法播放此影片：{str(e)}", ephemeral=True)
+                            await interaction.followup.send(f"無法播放此影片：{type(e).__name__}: {str(e)}", ephemeral=True)
                         raise
                     
             except Exception as e:
-                self.logger.error(f"處理下一首歌曲時發生錯誤: {str(e)}")
+                self.logger.error(f"處理下一首歌曲時發生錯誤: {type(e).__name__}: {str(e)}")
                 if interaction:
-                    await interaction.followup.send(f"播放時發生錯誤：{str(e)}", ephemeral=True)
+                    await interaction.followup.send(f"播放時發生錯誤：{type(e).__name__}: {str(e)}", ephemeral=True)
                 # 如果出錯，嘗試播放下一首
                 await self.play_next(guild_id, interaction)
         else:
@@ -419,11 +444,11 @@ class Music(commands.Cog):
             
             search_opts = {
                 'format': 'bestaudio/best',
-                'quiet': True,
-                'no_warnings': True,
+                'quiet': False,  # 開啟詳細輸出
+                'no_warnings': False,  # 顯示警告
                 'extract_flat': False,
                 'force_generic_extractor': False,
-                'ignoreerrors': True,
+                'ignoreerrors': False,  # 不忽略錯誤
                 'no_color': True,
                 'geo_bypass': True,
             }
