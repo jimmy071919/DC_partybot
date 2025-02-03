@@ -276,169 +276,137 @@ class Music(commands.Cog):
             queue.voice_client = interaction.guild.voice_client
             self.logger.info("已恢復語音客戶端連接")
 
-        if not queue.voice_client:
-            self.logger.error("沒有語音客戶端連接")
-            if interaction:
-                await interaction.followup.send("錯誤：沒有語音客戶端連接", ephemeral=True)
-            return
-
-        if not queue.voice_client.is_connected():
-            self.logger.error("語音客戶端未連接")
-            if interaction:
-                await interaction.followup.send("錯誤：語音客戶端未連接", ephemeral=True)
-            # 嘗試重新連接
-            if interaction and interaction.user.voice:
-                if await self.ensure_voice_connected(interaction):
-                    self.logger.info("已重新建立語音連接")
-                else:
-                    return
-            else:
-                return
-
-        if not queue.queue and not queue.loop:
-            self.logger.info("佇列為空且未開啟循環播放")
-            queue.is_playing = False
-            queue.current = None
-            if interaction:
-                await interaction.followup.send("播放佇列已空", ephemeral=True)
-            return
-        
         next_song = queue.get_next()
-        if not next_song:
-            self.logger.error("無法獲取下一首歌曲")
-            if interaction:
-                await interaction.followup.send("錯誤：無法獲取下一首歌曲", ephemeral=True)
-            return
-
-        self.logger.info(f"準備播放: {next_song.get('title', 'Unknown Title')} ({next_song.get('url', 'No URL')})")
-
-        try:
-            # 使用 yt-dlp 獲取音訊 URL
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False,  # 需要完整提取
-                'skip_download': True,
-                'force_generic_extractor': False,
-                'ignoreerrors': True,
-                'no_color': True,
-                'geo_bypass': True,
-                'socket_timeout': 30,
-                'retries': 10,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Origin': 'https://www.youtube.com',
-                    'Referer': 'https://www.youtube.com/'
-                }
-            }
-
-            # 如果有 cookies，添加到選項中
-            cookies = os.getenv('YOUTUBE_COOKIES')
-            if cookies:
-                self.logger.info("從環境變數讀取 cookies")
-                try:
-                    # 將 base64 編碼的 cookies 解碼並寫入臨時文件
-                    cookies_content = base64.b64decode(cookies).decode('utf-8')
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-                        f.write(cookies_content)
-                        cookies_path = f.name
-                    self.logger.info(f"已將 cookies 寫入臨時文件: {cookies_path}")
-                    ydl_opts['cookies'] = cookies_path
-                except Exception as e:
-                    self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                self.logger.info("開始提取影片資訊...")
-                info = ydl.extract_info(next_song['url'], download=False)
+        if next_song:
+            try:
+                self.logger.info(f"準備播放: {next_song['title']} ({next_song['url']})")
                 
-                if not info:
-                    raise Exception("無法獲取影片資訊")
-
-                # 清理臨時 cookies 文件
-                if 'cookies_path' in locals():
+                # 讀取 cookies
+                cookies_content = os.getenv('YOUTUBE_COOKIES')
+                cookies_file = None
+                
+                if cookies_content:
+                    self.logger.info("從環境變數讀取 cookies")
                     try:
-                        os.unlink(cookies_path)
-                        self.logger.info("已刪除臨時 cookies 文件")
+                        # 解碼 base64 內容
+                        decoded_cookies = base64.b64decode(cookies_content).decode('utf-8')
+                        
+                        # 創建臨時文件
+                        temp_dir = tempfile.gettempdir()
+                        cookies_file = os.path.join(temp_dir, 'youtube_cookies.txt')
+                        
+                        # 寫入 cookies 內容
+                        with open(cookies_file, 'w', encoding='utf-8') as f:
+                            if not decoded_cookies.startswith('# Netscape HTTP Cookie File'):
+                                f.write("# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n")
+                            f.write(decoded_cookies)
+                        
+                        self.logger.info(f"已將 cookies 寫入臨時文件: {cookies_file}")
+                        os.chmod(cookies_file, 0o600)  # 設置更嚴格的文件權限
+                        
                     except Exception as e:
-                        self.logger.error(f"刪除臨時 cookies 文件時發生錯誤: {str(e)}")
-
-                # 獲取最佳音訊格式的 URL
-                formats = info.get('formats', [])
-                if not formats:
-                    raise Exception("沒有可用的音訊格式")
-
-                # 優先選擇音訊格式
-                audio_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
-                if audio_formats:
-                    format_url = audio_formats[0]['url']
-                else:
-                    format_url = formats[0]['url']  # 如果沒有純音訊格式，使用第一個可用格式
-
-                self.logger.info("成功獲取音訊 URL")
-
-                def after_playing(error):
-                    if error:
-                        self.logger.error(f"播放時發生錯誤: {str(error)}")
-                    asyncio.run_coroutine_threadsafe(
-                        self.play_next(guild_id), 
-                        self.bot.loop
-                    )
-
-                try:
-                    # 嘗試播放音訊
-                    queue.voice_client.play(
-                        discord.FFmpegPCMAudio(
-                            format_url,
-                            executable='ffmpeg',
-                            before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
-                        ),
-                        after=after_playing
-                    )
+                        self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
+                        if cookies_file and os.path.exists(cookies_file):
+                            os.remove(cookies_file)
+                            cookies_file = None
+                
+                # 設置 yt-dlp 選項
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }],
+                    'quiet': True,
+                    'no_warnings': True,
+                    'extract_flat': False,
+                    'force_generic_extractor': False,
+                    'ignoreerrors': True,
+                    'no_color': True,
+                    'geo_bypass': True,
+                    'socket_timeout': 30,
+                    'retries': 10,
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-us,en;q=0.5',
+                        'Sec-Fetch-Mode': 'navigate'
+                    }
+                }
+                
+                if cookies_file:
+                    ydl_opts['cookiefile'] = cookies_file
+                
+                self.logger.info("開始提取影片資訊...")
+                
+                # 使用 yt-dlp 提取影片資訊
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    try:
+                        info = await asyncio.get_event_loop().run_in_executor(
+                            None, 
+                            lambda: ydl.extract_info(next_song['url'], download=False)
+                        )
+                        
+                        if not info:
+                            raise Exception("無法獲取影片資訊")
+                            
+                        # 獲取音訊URL
+                        if 'url' in info:
+                            url = info['url']
+                        else:
+                            formats = info.get('formats', [])
+                            if not formats:
+                                raise Exception("無法找到可用的音訊格式")
+                            
+                            # 選擇最佳的音訊格式
+                            audio_formats = [f for f in formats if f.get('acodec') != 'none']
+                            if not audio_formats:
+                                raise Exception("無法找到可用的音訊格式")
+                            
+                            url = audio_formats[0]['url']
+                        
+                        # 播放音訊
+                        FFMPEG_OPTIONS = {
+                            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                            'options': '-vn'
+                        }
+                        
+                        source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
+                        queue.voice_client.play(source, after=lambda e: self.after_playing(e))
+                        queue.is_playing = True
+                        
+                    except Exception as e:
+                        self.logger.error(f"提取影片資訊時發生錯誤: {str(e)}")
+                        raise
                     
-                    # 設置音量
-                    queue.voice_client.source = discord.PCMVolumeTransformer(
-                        queue.voice_client.source,
-                        volume=queue.volume
-                    )
-                    
-                    queue.is_playing = True
-                    queue.current = next_song
-                    self.logger.info("開始播放音樂")
-
-                    # 發送播放通知
-                    if interaction and interaction.channel:
-                        embed = discord.Embed(
-                            title="🎵 正在播放",
-                            description=info.get('title', next_song['title']),
-                            color=discord.Color.green()
-                        )
-                        embed.add_field(
-                            name="長度",
-                            value=info.get('duration_string', 'N/A')
-                        )
-                        embed.add_field(
-                            name="請求者",
-                            value=next_song.get('requester', 'Unknown')
-                        )
-                        await interaction.followup.send(embed=embed)
-                        self.logger.info(f"已發送播放通知: {info.get('title', next_song['title'])}")
-
-                except Exception as e:
-                    self.logger.error(f"播放音訊時發生錯誤: {str(e)}")
-                    if interaction:
-                        await interaction.followup.send(f"播放時發生錯誤: {str(e)}", ephemeral=True)
-                    raise
-
-        except Exception as e:
-            self.logger.error(f"處理下一首歌曲時發生錯誤: {str(e)}")
-            if interaction:
-                await interaction.followup.send(f"錯誤: {str(e)}", ephemeral=True)
-            # 嘗試播放下一首
-            await self.play_next(guild_id, interaction)
+                    finally:
+                        # 清理臨時文件
+                        if cookies_file and os.path.exists(cookies_file):
+                            try:
+                                os.remove(cookies_file)
+                                self.logger.info("已清理臨時 cookies 文件")
+                            except Exception as e:
+                                self.logger.error(f"清理臨時文件時發生錯誤: {str(e)}")
+                
+            except Exception as e:
+                self.logger.error(f"處理下一首歌曲時發生錯誤: {str(e)}")
+                if interaction:
+                    await interaction.followup.send(f"播放時發生錯誤：{str(e)}", ephemeral=True)
+                # 如果出錯，嘗試播放下一首
+                await self.play_next(guild_id, interaction)
+        else:
+            if queue.loop:
+                self.logger.info("佇列為空，但已開啟循環播放")
+                # 如果開啟了循環播放，重新將當前歌曲加入佇列
+                if queue.current:
+                    queue.add(queue.current)
+                    await self.play_next(guild_id, interaction)
+            else:
+                self.logger.info("佇列為空且未開啟循環播放")
+                queue.is_playing = False
+                if interaction:
+                    await interaction.followup.send("播放完畢！", ephemeral=True)
 
     async def search_youtube(self, query: str) -> List[Dict]:
         """搜尋 YouTube 影片"""
