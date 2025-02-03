@@ -14,6 +14,10 @@ from typing import List, Dict, Optional
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
+import subprocess
+import aiohttp
+from collections import defaultdict
+from queue_manager import QueueManager
 
 # 載入環境變數
 load_dotenv()
@@ -60,146 +64,55 @@ class MusicQueue:
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.queues = {}
-        self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        self.queues = defaultdict(QueueManager)
         self.logger = logging.getLogger(__name__)
-        
-        # 檢查 ffmpeg 是否存在於系統中
-        ffmpeg_path = shutil.which('ffmpeg')
-        if not ffmpeg_path:
-            # 嘗試在常見路徑中尋找 ffmpeg
-            common_paths = [
-                '/usr/bin/ffmpeg',
-                '/usr/local/bin/ffmpeg',
-                '/opt/ffmpeg/bin/ffmpeg'
-            ]
-            for path in common_paths:
-                if os.path.exists(path):
-                    ffmpeg_path = path
-                    break
-            
-            if not ffmpeg_path:
-                self.logger.error("找不到 ffmpeg，音樂功能將無法使用")
-                self.logger.warning("音樂功能將被禁用，但其他功能仍然可用")
-                self.disabled = True
-                return
-        
-        self.logger.info(f"找到 ffmpeg: {ffmpeg_path}")
-        self.disabled = False
-        
-        # 從環境變數獲取 cookies 內容
-        cookies_content = os.getenv('YOUTUBE_COOKIES')
-        cookies_path = None
-        
-        if cookies_content:
-            try:
-                # 解碼 base64 內容
-                decoded_cookies = base64.b64decode(cookies_content).decode('utf-8')
-                
-                # 確保 cookies 內容是正確的格式
-                if not decoded_cookies.startswith('# Netscape HTTP Cookie File'):
-                    self.logger.warning("Cookies 內容格式不正確，添加標頭")
-                    decoded_cookies = "# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n" + decoded_cookies
-                
-                # 創建臨時文件
-                temp_dir = tempfile.gettempdir()
-                cookies_path = os.path.join(temp_dir, 'youtube.cookies')
-                
-                # 寫入 cookies 內容
-                with open(cookies_path, 'w', encoding='utf-8') as f:
-                    f.write(decoded_cookies)
-                
-                self.logger.info(f"已創建臨時 cookies 文件: {cookies_path}")
-                
-                # 確保文件權限正確
-                try:
-                    os.chmod(cookies_path, 0o644)
-                    self.logger.info("已設置 cookies 文件權限")
-                except Exception as e:
-                    self.logger.warning(f"設置 cookies 文件權限時發生錯誤: {str(e)}")
-                    
-                # 驗證 cookies 文件
-                try:
-                    with open(cookies_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        self.logger.info(f"Cookies 文件大小: {len(content)} 字節")
-                        if len(content.strip()) == 0:
-                            self.logger.error("Cookies 文件為空")
-                except Exception as e:
-                    self.logger.error(f"驗證 cookies 文件時發生錯誤: {str(e)}")
-                    
-            except Exception as e:
-                self.logger.error(f"處理 cookies 時發生錯誤: {str(e)}")
-                if cookies_path and os.path.exists(cookies_path):
-                    try:
-                        os.remove(cookies_path)
-                        self.logger.info("已刪除無效的 cookies 文件")
-                    except Exception as e:
-                        self.logger.error(f"刪除無效的 cookies 文件時發生錯誤: {str(e)}")
-        else:
-            self.logger.warning("環境變數中未找到 YOUTUBE_COOKIES")
-        
-        # 設定 yt-dlp 選項
-        self.YDL_OPTIONS = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'ffmpeg_location': ffmpeg_path,
-            'prefer_ffmpeg': True,
-            'keepvideo': False,
-            'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'force_generic_extractor': False,
-            'ignoreerrors': True,
-            'no_color': True,
-            'geo_bypass': True,
-            'socket_timeout': 30,  # 增加超時時間
-            'retries': 10,  # 增加重試次數
-            'extractor_args': {
-                'youtube': {
-                    'skip': ['dash', 'hls'],
-                    'player_skip': ['js', 'configs', 'webpage']
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-Dest': 'document'
-            }
-        }
-        
-        # 如果存在 cookies 文件，則添加到選項中
-        if cookies_path and os.path.exists(cookies_path):
-            self.YDL_OPTIONS['cookies'] = cookies_path
-            self.logger.info(f"已將 cookies 文件添加到 yt-dlp 選項中: {cookies_path}")
-            
-            # 驗證 cookies 文件內容
-            try:
-                with open(cookies_path, 'r', encoding='utf-8') as f:
-                    first_line = f.readline().strip()
-                    self.logger.info(f"Cookies 文件首行: {first_line}")
-                    if not first_line.startswith('# Netscape HTTP Cookie File'):
-                        self.logger.warning("Cookies 文件格式可能不正確")
-            except Exception as e:
-                self.logger.error(f"讀取 cookies 文件時發生錯誤: {str(e)}")
-        
-        # 移除 cookiesfrombrowser 選項
-        if 'cookiesfrombrowser' in self.YDL_OPTIONS:
-            del self.YDL_OPTIONS['cookiesfrombrowser']
+        self.invidious_instances = [
+            'https://invidious.snopyta.org',
+            'https://invidious.kavin.rocks',
+            'https://vid.puffyan.us',
+            'https://yt.artemislena.eu',
+            'https://invidious.namazso.eu'
+        ]
+        self.session = aiohttp.ClientSession()
 
-    def get_queue(self, guild_id: int) -> MusicQueue:
-        """獲取或創建伺服器的音樂佇列"""
-        if guild_id not in self.queues:
-            self.queues[guild_id] = MusicQueue()
-        return self.queues[guild_id]
+    def cog_unload(self):
+        """當 Cog 被卸載時關閉 session"""
+        asyncio.create_task(self.session.close())
+
+    async def get_video_info(self, video_id: str) -> Optional[Dict[str, Any]]:
+        """從 invidious API 獲取影片資訊"""
+        for instance in self.invidious_instances:
+            try:
+                self.logger.info(f"嘗試從 {instance} 獲取影片資訊")
+                async with self.session.get(f"{instance}/api/v1/videos/{video_id}", timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        self.logger.info(f"成功從 {instance} 獲取影片資訊")
+                        return data
+            except Exception as e:
+                self.logger.error(f"從 {instance} 獲取影片資訊時發生錯誤: {str(e)}")
+                continue
+        return None
+
+    async def get_audio_url(self, video_id: str) -> Optional[str]:
+        """從 invidious API 獲取音訊 URL"""
+        video_info = await self.get_video_info(video_id)
+        if not video_info:
+            return None
+
+        # 獲取可用的音訊格式
+        adaptiveFormats = video_info.get('adaptiveFormats', [])
+        audio_formats = [f for f in adaptiveFormats if f.get('type', '').startswith('audio/')]
+        
+        if not audio_formats:
+            return None
+
+        # 按照比特率排序，選擇最高品質的音訊
+        audio_formats.sort(key=lambda x: x.get('bitrate', 0), reverse=True)
+        best_audio = audio_formats[0]
+        
+        self.logger.info(f"已選擇音訊格式: {best_audio.get('type')} ({best_audio.get('bitrate')})")
+        return best_audio.get('url')
 
     async def ensure_voice_connected(self, interaction: discord.Interaction, max_retries: int = 3) -> bool:
         """確保語音連接成功建立"""
@@ -281,109 +194,42 @@ class Music(commands.Cog):
             try:
                 self.logger.info(f"準備播放: {next_song['title']} ({next_song['url']})")
                 
-                # 設置 yt-dlp 選項
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': False,  # 開啟詳細輸出
-                    'no_warnings': False,  # 顯示警告
-                    'extract_flat': False,
-                    'force_generic_extractor': False,
-                    'ignoreerrors': False,  # 不忽略錯誤
-                    'no_color': True,
-                    'geo_bypass': True,
-                    'socket_timeout': 30,
-                    'retries': 10,
-                    'verbose': True,  # 開啟詳細日誌
-                    'nocheckcertificate': True,
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'en-us,en;q=0.5',
-                        'Sec-Fetch-Mode': 'navigate'
-                    }
-                }
-
-                self.logger.info("開始提取影片資訊...")
+                # 從 URL 中提取影片 ID
+                video_id = next_song['url'].split('watch?v=')[-1]
                 
-                # 使用 yt-dlp 提取影片資訊
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    try:
-                        # 添加更多日誌
-                        self.logger.info(f"使用的 yt-dlp 選項: {ydl_opts}")
-                        
-                        info = await asyncio.get_event_loop().run_in_executor(
-                            None, 
-                            lambda: ydl.extract_info(next_song['url'], download=False)
-                        )
-                        
-                        if not info:
-                            raise Exception("無法獲取影片資訊")
-                        
-                        # 記錄獲取到的資訊
-                        self.logger.info(f"成功獲取影片資訊: {info.get('title', 'unknown title')}")
-                        self.logger.info(f"可用格式數量: {len(info.get('formats', []))}")
-                        
-                        # 獲取最佳音訊格式的 URL
-                        formats = info.get('formats', [])
-                        if not formats:
-                            raise Exception("無法找到可用的音訊格式")
-                        
-                        # 選擇最佳的音訊格式
-                        audio_formats = [f for f in formats if f.get('acodec') != 'none']
-                        if not audio_formats:
-                            raise Exception("無法找到可用的音訊格式")
-                        
-                        # 記錄音訊格式資訊
-                        self.logger.info(f"找到 {len(audio_formats)} 個音訊格式")
-                        for i, fmt in enumerate(audio_formats):
-                            self.logger.info(f"格式 {i+1}: {fmt.get('format_id')} - {fmt.get('abr')}kbps")
-                        
-                        # 按照比特率排序，選擇最高品質的音訊
-                        audio_formats.sort(key=lambda f: f.get('abr', 0), reverse=True)
-                        best_audio = audio_formats[0]
-                        
-                        self.logger.info(f"已選擇音訊格式: {best_audio.get('format_id')} ({best_audio.get('abr')}kbps)")
-                        self.logger.info(f"音訊 URL: {best_audio.get('url', '無法獲取URL')[:100]}...")  # 只記錄 URL 的前 100 個字符
-                        
-                        # 播放音訊
-                        FFMPEG_OPTIONS = {
-                            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -loglevel debug',  # 添加 ffmpeg 詳細日誌
-                            'options': '-vn'
-                        }
-                        
-                        self.logger.info(f"使用的 FFMPEG 選項: {FFMPEG_OPTIONS}")
-                        
-                        source = await discord.FFmpegOpusAudio.from_probe(
-                            best_audio['url'],
-                            **FFMPEG_OPTIONS
-                        )
-                        
-                        self.logger.info("成功創建音訊源")
-                        
-                        queue.voice_client.play(source, after=lambda e: self.after_playing(e))
-                        queue.is_playing = True
-                        
-                        self.logger.info("開始播放音訊")
-                        
-                        if interaction:
-                            embed = discord.Embed(
-                                title="🎵 正在播放",
-                                description=f"{next_song['title']}\n音質: {best_audio.get('abr', 'unknown')}kbps",
-                                color=discord.Color.green()
-                            )
-                            await interaction.followup.send(embed=embed)
-                        
-                    except Exception as e:
-                        self.logger.error(f"提取影片資訊時發生錯誤: {str(e)}")
-                        self.logger.error(f"錯誤類型: {type(e).__name__}")
-                        self.logger.error(f"完整錯誤訊息: {str(e)}")
-                        if hasattr(e, '__traceback__'):
-                            import traceback
-                            self.logger.error(f"錯誤堆疊: {''.join(traceback.format_tb(e.__traceback__))}")
-                        if interaction:
-                            await interaction.followup.send(f"無法播放此影片：{type(e).__name__}: {str(e)}", ephemeral=True)
-                        raise
-                    
+                # 獲取音訊 URL
+                audio_url = await self.get_audio_url(video_id)
+                if not audio_url:
+                    raise Exception("無法獲取音訊 URL")
+                
+                self.logger.info("成功獲取音訊 URL")
+                
+                # 播放音訊
+                FFMPEG_OPTIONS = {
+                    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                    'options': '-vn'
+                }
+                
+                source = await discord.FFmpegOpusAudio.from_probe(
+                    audio_url,
+                    **FFMPEG_OPTIONS
+                )
+                
+                self.logger.info("成功創建音訊源")
+                
+                queue.voice_client.play(source, after=lambda e: self.after_playing(e))
+                queue.is_playing = True
+                
+                self.logger.info("開始播放音訊")
+                
+                if interaction:
+                    embed = discord.Embed(
+                        title="🎵 正在播放",
+                        description=next_song['title'],
+                        color=discord.Color.green()
+                    )
+                    await interaction.followup.send(embed=embed)
+                
             except Exception as e:
                 self.logger.error(f"處理下一首歌曲時發生錯誤: {type(e).__name__}: {str(e)}")
                 if interaction:
