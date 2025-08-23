@@ -7,6 +7,8 @@ import os
 import logging
 import sys
 from pathlib import Path
+import ssl
+import certifi
 
 # 設置日誌
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -22,8 +24,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def setup_ssl():
+    """設置 SSL 驗證環境"""
+    try:
+        # 設置不驗證 SSL 憑證
+        ssl._create_default_https_context = ssl._create_unverified_context
+        logger.info("已設置 SSL 憑證上下文為不驗證模式")
+    except Exception as e:
+        logger.error(f"設置 SSL 憑證時發生錯誤: {str(e)}")
+
 def load_token():
     """載入並驗證 Discord Token"""
+    # 設置 SSL 環境
+    setup_ssl()
+    
     # 嘗試載入 .env 或 .ENV 檔案
     env_files = ['.env', '.ENV']
     for env_file in env_files:

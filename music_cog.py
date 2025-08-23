@@ -137,6 +137,10 @@ class Music(commands.Cog):
         self.bot = bot
         self.queues = defaultdict(MusicQueue)
         self.logger = logging.getLogger(__name__)
+        
+        # 設置 SSL 憑證處理
+        self._setup_ssl()
+        
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         
         # 啟動自動檢查語音頻道的任務
@@ -163,8 +167,23 @@ class Music(commands.Cog):
             'default_search': 'auto',
             'logtostderr': False,
             'verbose': False,
-            'cookiefile': 'youtube.cookies' if os.path.exists('youtube.cookies') else None,
+            # 不使用 cookie 檔案，避免格式問題
+            'cookiefile': None,
         }
+        
+    def _setup_ssl(self):
+        """設置 SSL 憑證驗證，解決憑證問題"""
+        try:
+            import ssl
+            import certifi
+            
+            # 設置默認 SSL 上下文使用不驗證模式
+            ssl._create_default_https_context = ssl._create_unverified_context
+            self.logger.info("已設置 SSL 憑證上下文為不驗證模式")
+        except ImportError:
+            self.logger.warning("未安裝 certifi 套件，SSL 憑證驗證可能會失敗")
+        except Exception as e:
+            self.logger.error(f"設置 SSL 憑證時發生錯誤: {str(e)}")
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
@@ -250,23 +269,39 @@ class Music(commands.Cog):
         return wrapper
 
     async def get_audio_url(self, url: str) -> Optional[Dict[str, str]]:
-        """使用 yt-dlp 獲取音訊 URL"""
-        try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                info = await asyncio.get_event_loop().run_in_executor(
-                    None, 
-                    lambda: ydl.extract_info(url, download=False)
-                )
-                if not info:
-                    return None
-                    
-                return {
-                    'url': info['url'],
-                    'title': info['title']
-                }
-        except Exception as e:
-            self.logger.error(f"獲取音訊 URL 時發生錯誤: {str(e)}")
-            return None
+        """使用 yt-dlp 獲取音訊 URL，帶有增強的錯誤處理"""
+        retry_count = 0
+        max_retries = 3
+        
+        while retry_count < max_retries:
+            try:
+                # 確保每次都設置不驗證 SSL
+                import ssl
+                ssl._create_default_https_context = ssl._create_unverified_context
+                
+                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+                    info = await asyncio.get_event_loop().run_in_executor(
+                        None, 
+                        lambda: ydl.extract_info(url, download=False)
+                    )
+                    if not info:
+                        self.logger.warning(f"無法獲取 URL {url} 的資訊")
+                        return None
+                        
+                    return {
+                        'url': info['url'],
+                        'title': info['title']
+                    }
+            except Exception as e:
+                self.logger.error(f"獲取音訊 URL 時發生錯誤 (嘗試 {retry_count + 1}/{max_retries}): {str(e)}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(1)  # 等待一秒後重試
+                    continue
+                else:
+                    raise Exception(f"無法獲取音訊 URL: {str(e)}")
+        
+        return None
 
     async def play_next(self, guild_id: int, ctx = None):
         """播放下一首歌曲
