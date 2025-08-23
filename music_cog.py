@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from collections import defaultdict
 from googleapiclient.discovery import build
+import ssl
+import certifi
 
 class MusicQueue:
     """音樂佇列類 - 管理每個伺服器的音樂播放佇列
@@ -159,6 +161,11 @@ class Music(commands.Cog):
             'geo_bypass': True,
             'socket_timeout': 30,
             'retries': 10,
+            'source_address': '0.0.0.0',  # 綁定到 IPv4
+            'prefer_insecure': True,  # 強制使用 HTTP 而非 HTTPS（如果可能）
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            },
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'opus',
@@ -175,13 +182,25 @@ class Music(commands.Cog):
         """設置 SSL 憑證驗證，解決憑證問題"""
         try:
             import ssl
-            import certifi
+            import os
+            
+            # 設置環境變數來避免 SSL 驗證問題
+            os.environ['PYTHONHTTPSVERIFY'] = '0'
+            os.environ['CURL_CA_BUNDLE'] = ''
+            os.environ['REQUESTS_CA_BUNDLE'] = ''
             
             # 設置默認 SSL 上下文使用不驗證模式
             ssl._create_default_https_context = ssl._create_unverified_context
+            
+            # 嘗試安裝 certifi 如果可用的話
+            try:
+                import certifi
+                os.environ['SSL_CERT_FILE'] = certifi.where()
+                self.logger.info("已設置 SSL 憑證路徑使用 certifi")
+            except ImportError:
+                self.logger.warning("未安裝 certifi 套件，使用不驗證模式")
+            
             self.logger.info("已設置 SSL 憑證上下文為不驗證模式")
-        except ImportError:
-            self.logger.warning("未安裝 certifi 套件，SSL 憑證驗證可能會失敗")
         except Exception as e:
             self.logger.error(f"設置 SSL 憑證時發生錯誤: {str(e)}")
 
@@ -277,9 +296,27 @@ class Music(commands.Cog):
             try:
                 # 確保每次都設置不驗證 SSL
                 import ssl
+                import os
                 ssl._create_default_https_context = ssl._create_unverified_context
                 
-                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+                # 設置環境變數
+                os.environ['PYTHONHTTPSVERIFY'] = '0'
+                
+                # 動態調整 yt-dlp 選項
+                current_opts = self.ydl_opts.copy()
+                
+                # 如果是 YouTube URL，嘗試不同的提取器設定
+                if 'youtube.com' in url or 'youtu.be' in url:
+                    current_opts.update({
+                        'extractor_args': {
+                            'youtube': {
+                                'skip': ['dash', 'hls']
+                            }
+                        },
+                        'force_generic_extractor': False,
+                    })
+                
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
                     info = await asyncio.get_event_loop().run_in_executor(
                         None, 
                         lambda: ydl.extract_info(url, download=False)
@@ -296,7 +333,16 @@ class Music(commands.Cog):
                 self.logger.error(f"獲取音訊 URL 時發生錯誤 (嘗試 {retry_count + 1}/{max_retries}): {str(e)}")
                 retry_count += 1
                 if retry_count < max_retries:
-                    await asyncio.sleep(1)  # 等待一秒後重試
+                    # 嘗試更新 yt-dlp
+                    if retry_count == 1:
+                        try:
+                            import subprocess
+                            subprocess.run(['pip', 'install', '--upgrade', 'yt-dlp'], 
+                                         capture_output=True, text=True)
+                            self.logger.info("已嘗試更新 yt-dlp")
+                        except:
+                            pass
+                    await asyncio.sleep(2)  # 增加等待時間
                     continue
                 else:
                     raise Exception(f"無法獲取音訊 URL: {str(e)}")
