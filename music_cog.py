@@ -143,7 +143,8 @@ class Music(commands.Cog):
         # 設置 SSL 憑證處理
         self._setup_ssl()
         
-        self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        # 初始化 YouTube API 客戶端，帶有重試機制
+        self.youtube = self._initialize_youtube_api()
         
         # 啟動自動檢查語音頻道的任務
         self.check_voice_activity.start()
@@ -203,6 +204,87 @@ class Music(commands.Cog):
             self.logger.info("已設置 SSL 憑證上下文為不驗證模式")
         except Exception as e:
             self.logger.error(f"設置 SSL 憑證時發生錯誤: {str(e)}")
+
+    def _initialize_youtube_api(self):
+        """初始化 YouTube API 客戶端，帶有 SSL 錯誤處理"""
+        try:
+            import httplib2
+            from googleapiclient.discovery import build
+            
+            # 檢查 API 金鑰
+            api_key = os.getenv('YOUTUBE_API_KEY')
+            if not api_key:
+                self.logger.error("YOUTUBE_API_KEY 環境變數未設定")
+                return None
+            else:
+                self.logger.info(f"YouTube API 金鑰已載入 (長度: {len(api_key)})")
+            
+            # 創建自定義的 HTTP 對象，禁用 SSL 驗證
+            http = httplib2.Http(disable_ssl_certificate_validation=True)
+            
+            # 設置額外的 SSL 環境
+            os.environ['PYTHONHTTPSVERIFY'] = '0'
+            
+            youtube_client = build('youtube', 'v3', 
+                        developerKey=api_key,
+                        http=http,
+                        cache_discovery=False)
+            
+            self.logger.info("YouTube API 客戶端初始化成功")
+            return youtube_client
+            
+        except Exception as e:
+            self.logger.error(f"初始化 YouTube API 時發生錯誤: {str(e)}")
+            # 如果自定義初始化失敗，嘗試標準初始化
+            try:
+                api_key = os.getenv('YOUTUBE_API_KEY')
+                if api_key:
+                    youtube_client = build('youtube', 'v3', 
+                               developerKey=api_key,
+                               cache_discovery=False)
+                    self.logger.info("使用標準方法初始化 YouTube API 客戶端成功")
+                    return youtube_client
+            except Exception as e2:
+                self.logger.error(f"標準 YouTube API 初始化也失敗: {str(e2)}")
+            
+            return None
+
+    async def _search_youtube_with_retry(self, query: str, max_retries=3):
+        """使用重試機制搜尋 YouTube，處理 SSL 錯誤"""
+        for attempt in range(max_retries):
+            try:
+                self.logger.info(f"使用 YouTube API 搜尋: {query} (嘗試 {attempt + 1}/{max_retries})")
+                
+                # 確保 SSL 設定
+                ssl._create_default_https_context = ssl._create_unverified_context
+                os.environ['PYTHONHTTPSVERIFY'] = '0'
+                
+                # 如果 YouTube API 客戶端無效，嘗試重新初始化
+                if not self.youtube:
+                    self.youtube = self._initialize_youtube_api()
+                    if not self.youtube:
+                        raise Exception("無法初始化 YouTube API 客戶端")
+                
+                search_response = self.youtube.search().list(
+                    q=query,
+                    part='id,snippet',
+                    maxResults=5,
+                    type='video'
+                ).execute()
+                
+                return search_response
+                
+            except Exception as e:
+                self.logger.error(f"YouTube API 搜尋錯誤 (嘗試 {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    # 等待後重試，並嘗試重新初始化 API 客戶端
+                    await asyncio.sleep(1 + attempt)
+                    self.youtube = self._initialize_youtube_api()
+                    continue
+                else:
+                    raise e
+        
+        return None
 
     def get_queue(self, guild_id: int) -> MusicQueue:
         """獲取或創建伺服器的音樂佇列"""
@@ -460,17 +542,10 @@ class Music(commands.Cog):
             return
             
         try:
-            # 使用 YouTube API 搜尋影片
-            self.logger.info(f"使用 YouTube API 搜尋: {query}")
+            # 使用帶重試機制的 YouTube API 搜尋
+            search_response = await self._search_youtube_with_retry(query)
             
-            search_response = self.youtube.search().list(
-                q=query,
-                part='id,snippet',
-                maxResults=5,
-                type='video'
-            ).execute()
-            
-            if not search_response.get('items'):
+            if not search_response or not search_response.get('items'):
                 await ctx.reply("找不到相關影片。", ephemeral=True)
                 return
             
