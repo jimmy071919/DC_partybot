@@ -1,18 +1,66 @@
-# 環境變數
+# 環境變數和敏感資訊
 .env
-# Python
+.ENV
+*.env
+*.ENV
+secrets.json
+youtube.cookies
+
+# Python 
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # 虛擬環境
 venv/
-
+.venv/
 ENV/
+env/
+env.bak/
+venv.bak/
 
-# IDE
+# IDE/編輯器相關
 .vscode/
 .idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+.directory
 
-# 其他
+# 日誌和資料檔
 *.log
+log/
+logs/
+*.bak
+*.tmp
+*.temp
+
+# 媒體檔案
+*.mp3
+*.mp4
+*.wav
+*.ogg
+temp_audio/
+
+# 安裝錯誤
+pip-log.txt
+pip-delete-this-directory.txt

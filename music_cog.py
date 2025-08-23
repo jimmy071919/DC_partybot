@@ -2,30 +2,75 @@ import yt_dlp
 import logging
 import asyncio
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import tempfile
 import os
 import base64
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from collections import defaultdict
 from googleapiclient.discovery import build
 
 class MusicQueue:
+    """音樂佇列類 - 管理每個伺服器的音樂播放佇列
+    
+    優化版本增加了佇列診斷和管理功能
+    """
     def __init__(self):
-        self.queue = []
-        self.current = None
-        self.voice_client = None
-        self.is_playing = False
-        self.loop = False
-
+        self.queue = []          # 歌曲佇列
+        self.current = None      # 當前播放的歌曲
+        self.voice_client = None # 語音客戶端連接
+        self.is_playing = False  # 是否正在播放
+        self.loop = False        # 循環播放模式
+        self.last_updated = None # 最後更新時間
+    
+    def __str__(self):
+        """返回佇列的字符串表示以便診斷"""
+        status = "播放中" if self.is_playing else "暫停"
+        loop = "開啟" if self.loop else "關閉"
+        current = self.current["title"] if self.current else "無"
+        return f"佇列狀態: {status} | 循環模式: {loop} | 佇列長度: {len(self.queue)} | 當前歌曲: {current}"
+    
     def add(self, item):
+        """新增歌曲到佇列"""
         self.queue.append(item)
+        self.last_updated = datetime.now()
+        return len(self.queue)  # 返回佇列長度方便提示
 
     def get_next(self):
+        """獲取佇列中的下一首歌曲"""
         if not self.queue:
             return None
         self.current = self.queue.pop(0)
+        self.last_updated = datetime.now()
         return self.current
+        
+    def clear(self):
+        """清空佇列"""
+        self.queue = []
+        self.current = None
+        self.is_playing = False
+        self.last_updated = datetime.now()
+        
+    def add_to_front(self, item):
+        """將歌曲添加到佇列的最前面（下一首播放）"""
+        self.queue.insert(0, item)
+        self.last_updated = datetime.now()
+        
+    def get_queue_info(self):
+        """獲取佇列資訊，用於顯示給用戶"""
+        info = []
+        if self.current:
+            info.append(f"▶️ 正在播放: {self.current['title']}")
+        if self.queue:
+            info.append("\n📋 即將播放:")
+            for i, song in enumerate(self.queue, 1):
+                if i <= 10:  # 只顯示前10首
+                    info.append(f"{i}. {song['title']}")
+                else:
+                    info.append(f"...以及更多 {len(self.queue) - 10} 首歌曲")
+                    break
+        return "\n".join(info) if info else "佇列為空"
 
 class SongSelectView(discord.ui.View):
     def __init__(self, videos: List[Dict], cog, ctx: commands.Context):
@@ -94,7 +139,10 @@ class Music(commands.Cog):
         self.logger = logging.getLogger(__name__)
         self.youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         
-        # 設置 yt-dlp 選項
+        # 啟動自動檢查語音頻道的任務
+        self.check_voice_activity.start()
+        
+        # 設置 yt-dlp 選項 - 優化音訊提取和錯誤處理
         self.ydl_opts = {
             'format': 'bestaudio/best',
             'quiet': True,
@@ -106,7 +154,16 @@ class Music(commands.Cog):
             'no_color': True,
             'geo_bypass': True,
             'socket_timeout': 30,
-            'retries': 10
+            'retries': 10,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'opus',
+                'preferredquality': '192',
+            }],
+            'default_search': 'auto',
+            'logtostderr': False,
+            'verbose': False,
+            'cookiefile': 'youtube.cookies' if os.path.exists('youtube.cookies') else None,
         }
 
     def get_queue(self, guild_id: int) -> MusicQueue:
@@ -160,14 +217,37 @@ class Music(commands.Cog):
         
         return False
 
-    async def after_playing(self, error):
-        """當一首歌播放完畢時的回調函數"""
-        if error:
-            self.logger.error(f"播放時發生錯誤: {str(error)}")
+    def after_playing_callback(self, guild_id, error=None):
+        """建立一個當歌曲播放完畢時的回調函數
         
-        for guild_id, queue in self.queues.items():
-            if queue.voice_client and not queue.voice_client.is_playing():
-                asyncio.create_task(self.play_next(guild_id))
+        這個函數解決了舊版本的回調無法正確處理特定伺服器的問題
+        """
+        async def _after_playing():
+            if error:
+                self.logger.error(f"播放時發生錯誤 (伺服器 ID: {guild_id}): {str(error)}")
+            
+            # 確保是非同步環境
+            try:
+                # 獲取特定伺服器的佇列
+                queue = self.get_queue(guild_id)
+                
+                # 檢查佇列是否存在且語音客戶端有效
+                if queue and queue.voice_client:
+                    self.logger.info(f"歌曲播放完畢，檢查佇列 (伺服器 ID: {guild_id})")
+                    
+                    # 如果不再播放，則嘗試播放下一首
+                    if not queue.voice_client.is_playing():
+                        await self.play_next(guild_id)
+                else:
+                    self.logger.warning(f"佇列或語音客戶端無效 (伺服器 ID: {guild_id})")
+            except Exception as e:
+                self.logger.error(f"在處理播放完畢回調時發生錯誤: {str(e)}")
+
+        # 返回一個同步回調函數，建立任務執行非同步處理
+        def wrapper(error=None):
+            asyncio.run_coroutine_threadsafe(_after_playing(), self.bot.loop)
+            
+        return wrapper
 
     async def get_audio_url(self, url: str) -> Optional[Dict[str, str]]:
         """使用 yt-dlp 獲取音訊 URL"""
@@ -189,16 +269,43 @@ class Music(commands.Cog):
             return None
 
     async def play_next(self, guild_id: int, ctx = None):
-        """播放下一首歌曲"""
+        """播放下一首歌曲
+        
+        優化的版本增加了更多診斷和錯誤處理
+        """
+        # 獲取伺服器的佇列
         queue = self.get_queue(guild_id)
         if not queue:
             self.logger.error(f"找不到 guild_id {guild_id} 的佇列")
             return
 
+        # 輸出佇列狀態
+        self.logger.info(f"佇列狀態 - 伺服器 {guild_id}: "
+                         f"佇列長度={len(queue.queue)}, "
+                         f"正在播放={queue.is_playing}, "
+                         f"循環模式={queue.loop}")
+            
+        # 檢查語音客戶端狀態並嘗試恢復
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            self.logger.error(f"找不到伺服器 ID: {guild_id}")
+            return
+            
         # 檢查並嘗試恢復語音客戶端
-        if not queue.voice_client and ctx and ctx.guild.voice_client:
-            queue.voice_client = ctx.guild.voice_client
-            self.logger.info("已恢復語音客戶端連接")
+        if not queue.voice_client:
+            # 如果提供了 context，嘗試使用它恢復連接
+            if ctx and ctx.guild.voice_client:
+                queue.voice_client = ctx.guild.voice_client
+                self.logger.info(f"已從 ctx 恢復語音客戶端連接 (伺服器 ID: {guild_id})")
+            # 否則嘗試從 guild 恢復
+            elif guild.voice_client:
+                queue.voice_client = guild.voice_client
+                self.logger.info(f"已從 guild 恢復語音客戶端連接 (伺服器 ID: {guild_id})")
+            else:
+                self.logger.error(f"無法恢復語音連接 (伺服器 ID: {guild_id})")
+                if ctx:
+                    await ctx.reply("與語音頻道的連接已丟失，請重新加入並使用 `/play` 指令。", ephemeral=True)
+                return
 
         next_song = queue.get_next()
         if next_song:
@@ -225,10 +332,14 @@ class Music(commands.Cog):
                 
                 self.logger.info("成功創建音訊源")
                 
-                queue.voice_client.play(source, after=lambda e: self.after_playing(e))
+                # 使用改進的回調函數，確保能夠識別特定的伺服器
+                queue.voice_client.play(
+                    source, 
+                    after=self.after_playing_callback(guild_id)
+                )
                 queue.is_playing = True
                 
-                self.logger.info("開始播放音訊")
+                self.logger.info(f"開始播放音訊 (伺服器 ID: {guild_id})")
                 
                 if ctx:
                     embed = discord.Embed(
@@ -346,14 +457,148 @@ class Music(commands.Cog):
         
         queue = self.get_queue(ctx.guild.id)
         if queue.voice_client:
-            queue.voice_client.stop()
-            await queue.voice_client.disconnect()
-            queue.queue.clear()
-            queue.current = None
-            queue.is_playing = False
+            try:
+                # 先停止播放
+                if queue.voice_client.is_playing():
+                    queue.voice_client.stop()
+                
+                # 嘗試斷開連接
+                await queue.voice_client.disconnect(force=True)
+                self.logger.info(f"已從語音頻道斷開連接 (伺服器 ID: {ctx.guild.id})")
+            except Exception as e:
+                self.logger.error(f"斷開語音連接時發生錯誤: {str(e)}")
+            finally:
+                # 無論如何都清空佇列
+                queue.clear()
+                
             await ctx.reply("已停止播放並清空佇列！", ephemeral=True)
         else:
             await ctx.reply("機器人不在語音頻道中。", ephemeral=True)
+            
+    @commands.hybrid_command(name='leave', description='讓機器人離開語音頻道')
+    async def leave_voice(self, ctx: commands.Context):
+        """讓機器人離開語音頻道，但不清空佇列"""
+        await ctx.defer()
+        
+        queue = self.get_queue(ctx.guild.id)
+        guild = ctx.guild
+        
+        # 檢查機器人是否在語音頻道中
+        if not (queue.voice_client or (guild and guild.voice_client)):
+            await ctx.reply("機器人不在語音頻道中。", ephemeral=True)
+            return
+            
+        try:
+            # 停止當前播放
+            voice_client = queue.voice_client or guild.voice_client
+            if voice_client and voice_client.is_playing():
+                voice_client.stop()
+                self.logger.info(f"已停止播放 (伺服器 ID: {ctx.guild.id})")
+                
+            # 斷開連接
+            if voice_client and voice_client.is_connected():
+                await voice_client.disconnect(force=True)
+                self.logger.info(f"已離開語音頻道 (伺服器 ID: {ctx.guild.id})")
+            
+            # 更新佇列狀態但不清空
+            queue.is_playing = False
+            queue.voice_client = None
+            
+            await ctx.reply("已離開語音頻道！佇列保留。", ephemeral=True)
+        except Exception as e:
+            self.logger.error(f"離開語音頻道時發生錯誤: {str(e)}")
+            await ctx.reply(f"離開語音頻道時發生錯誤，請稍後再試。", ephemeral=True)
+            
+    @commands.hybrid_command(name='queue', description='查看當前的歌曲佇列')
+    async def show_queue(self, ctx: commands.Context):
+        """顯示當前的歌曲佇列"""
+        await ctx.defer()
+        
+        queue = self.get_queue(ctx.guild.id)
+        if not queue.is_playing and not queue.queue:
+            await ctx.reply("目前沒有歌曲在佇列中。", ephemeral=True)
+            return
+            
+        # 建立佇列資訊嵌入訊息
+        embed = discord.Embed(
+            title="🎵 歌曲佇列",
+            description=queue.get_queue_info(),
+            color=discord.Color.blue()
+        )
+        
+        # 顯示循環模式狀態
+        embed.add_field(
+            name="循環模式", 
+            value="✅ 開啟" if queue.loop else "❌ 關閉", 
+            inline=True
+        )
+        
+        # 顯示佇列長度
+        embed.add_field(
+            name="佇列總長", 
+            value=f"{len(queue.queue)} 首歌曲", 
+            inline=True
+        )
+        
+        # 如果正在播放，顯示目前播放時間
+        if queue.voice_client and queue.voice_client.is_playing():
+            embed.set_footer(text=f"使用 /skip 跳過當前歌曲 | /stop 停止播放 | /leave 離開頻道")
+        
+        await ctx.reply(embed=embed)
+        
+    @tasks.loop(seconds=30)
+    async def check_voice_activity(self):
+        """定期檢查機器人是否在空語音頻道中，如果是則自動離開"""
+        try:
+            for guild in self.bot.guilds:
+                # 檢查機器人是否在該伺服器的語音頻道中
+                voice_client = guild.voice_client
+                if not voice_client or not voice_client.is_connected():
+                    continue
+                    
+                # 獲取佇列
+                queue = self.get_queue(guild.id)
+                
+                # 檢查頻道是否只有機器人一人
+                voice_channel = voice_client.channel
+                human_members = [m for m in voice_channel.members if not m.bot]
+                
+                # 如果頻道中沒有人類成員，或閒置超過5分鐘，則離開
+                if (not human_members) or (not voice_client.is_playing() and 
+                        queue.last_updated and 
+                        datetime.now() - queue.last_updated > timedelta(minutes=5)):
+                    self.logger.info(f"檢測到空語音頻道或閒置超時，自動離開 (伺服器: {guild.id})")
+                    
+                    try:
+                        # 停止播放並離開
+                        if voice_client.is_playing():
+                            voice_client.stop()
+                        await voice_client.disconnect(force=True)
+                        
+                        # 更新佇列狀態
+                        queue.is_playing = False
+                        queue.voice_client = None
+                    except Exception as e:
+                        self.logger.error(f"自動離開語音頻道時發生錯誤: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"檢查語音活動時發生錯誤: {str(e)}")
+    
+    @check_voice_activity.before_loop
+    async def before_check_voice(self):
+        """在啟動任務前等待機器人準備好"""
+        await self.bot.wait_until_ready()
+        
+    def cog_unload(self):
+        """當 Cog 被卸載時清理資源"""
+        self.check_voice_activity.cancel()
+        
+        # 嘗試關閉所有語音連接
+        for guild_id, queue in self.queues.items():
+            if queue.voice_client and queue.voice_client.is_connected():
+                try:
+                    self.bot.loop.create_task(queue.voice_client.disconnect(force=True))
+                except:
+                    pass
 
 async def setup(bot):
     await bot.add_cog(Music(bot))
