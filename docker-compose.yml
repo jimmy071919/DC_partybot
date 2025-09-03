@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  discord-bot:
+    build: .
+    container_name: dc_partybot
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - TENOR_API_KEY=${TENOR_API_KEY}
+      - COMMAND_PREFIX=${COMMAND_PREFIX:-!}
+    volumes:
+      # 掛載數據目錄以保持持久性
+      - ./data:/app/data
+      # 掛載日誌檔案
+      - ./discord_bot.log:/app/discord_bot.log
+      # 掛載 cookies 檔案
+      - ./youtube.cookies:/app/youtube.cookies
+    networks:
+      - bot-network
+    # 可選：如果需要 Redis 或其他服務
+    # depends_on:
+    #   - redis
+
+  # 可選：Redis 服務（如果需要快取功能）
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: dc_partybot_redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - bot-network
+
+networks:
+  bot-network:
+    driver: bridge
+
+# 可選：持久化卷
+# volumes:
+#   redis_data:

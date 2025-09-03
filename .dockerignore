@@ -1,0 +1,56 @@
+# Git 檔案
+.git
+.gitignore
+README.md
+
+# Python 檔案
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# 環境檔案
+.env
+
+# Docker 檔案
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# IDE 檔案
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS 檔案
+.DS_Store
+Thumbs.db
+
+# 暫存檔案
+*.tmp
+*.temp
+
+# 文檔檔案
+*.md
+!README.md
+
+# 部署相關檔案
+railway.toml
+nixpacks.toml
