@@ -12,7 +12,9 @@ import certifi
 
 # 設置日誌
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-LOG_FILE = 'discord_bot.log'
+LOG_DIR = Path('logs')
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / 'discord_bot.log'
 
 logging.basicConfig(
     level=logging.INFO,
