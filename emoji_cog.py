@@ -35,14 +35,12 @@ class Emoji(commands.Cog):
             self.logger.warning("未設定 Tenor API Key")
             return None
             
-        # 優化參數
+        # 修正 Tenor API v1 參數
         params = {
             "q": category,
             "key": TENOR_API_KEY,
-            "client_key": "discord_bot",
-            "limit": 15,          # 增加選擇範圍
-            "media_filter": "gif",
-            "random": "true"       # 使用 Tenor 的隨機功能
+            "limit": 10,
+            "media_filter": "basic"
         }
         
         # 重試邏輯
@@ -58,21 +56,23 @@ class Emoji(commands.Cog):
                             if "results" in data and data["results"]:
                                 gif = random.choice(data["results"])
                                 
-                                # 嘗試獲取不同格式，優先選擇更優質的格式
-                                formats = gif.get("media_formats", {})
-                                if "mediumgif" in formats:
-                                    return formats["mediumgif"]["url"]
-                                elif "gif" in formats:
-                                    return formats["gif"]["url"]
-                                elif "tinygif" in formats:
-                                    return formats["tinygif"]["url"]
+                                # Tenor API v1 格式
+                                media_formats = gif.get("media", [])
+                                if media_formats:
+                                    # 優先選擇 gif 格式
+                                    for media in media_formats:
+                                        if media.get("gif", {}).get("url"):
+                                            return media["gif"]["url"]
                                 else:
-                                    # 最後才回到原有方案
-                                    return gif["media_formats"]["gif"]["url"]
+                                    self.logger.warning(f"Tenor API 返回無效格式，類別: {category}")
                             else:
                                 self.logger.warning(f"Tenor API 返回空結果，類別: {category}")
                         else:
                             self.logger.error(f"Tenor API 返回錯誤碼: {response.status}")
+                            # 記錄錯誤詳情
+                            if response.status == 400:
+                                error_text = await response.text()
+                                self.logger.error(f"API 錯誤詳情: {error_text}")
                             
                             # 如果是速率限制，等待後重試
                             if response.status == 429:  # Too Many Requests

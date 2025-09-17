@@ -28,7 +28,7 @@ YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')
 
 # Tenor API 配置
 TENOR_API_KEY = os.getenv('TENOR_API_KEY', '')
-TENOR_API_URL = os.getenv('TENOR_API_URL', 'https://tenor.googleapis.com/v2/search')
+TENOR_API_URL = os.getenv('TENOR_API_URL', 'https://g.tenor.com/v1/search')
 
 # 獲取 FFMPEG 路徑
 def get_ffmpeg_path():
