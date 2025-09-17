@@ -10,28 +10,31 @@ services:
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
       - TENOR_API_KEY=${TENOR_API_KEY}
       - COMMAND_PREFIX=${COMMAND_PREFIX:-!}
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Taipei
     volumes:
       # 掛載數據目錄以保持持久性
       - ./data:/app/data
-      # 掛載整個根目錄來保持日誌檔案
+      # 掛載日誌目錄
       - ./logs:/app/logs
       # 掛載 cookies 檔案
       - ./youtube.cookies:/app/youtube.cookies
     networks:
       - bot-network
-    # 可選：如果需要 Redis 或其他服務
-    # depends_on:
-    #   - redis
-
-  # 可選：Redis 服務（如果需要快取功能）
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: dc_partybot_redis
-  #   restart: unless-stopped
-  #   volumes:
-  #     - redis_data:/data
-  #   networks:
-  #     - bot-network
+    # 資源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    # 健康檢查
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import requests; requests.get(\"https://discord.com/api/v10/gateway\", timeout=5)'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
   bot-network:
