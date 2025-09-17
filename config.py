@@ -26,10 +26,6 @@ COMMAND_PREFIX = os.getenv('COMMAND_PREFIX', '!')
 # YouTube API 配置
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')
 
-# Tenor API 配置
-TENOR_API_KEY = os.getenv('TENOR_API_KEY', '')
-TENOR_API_URL = os.getenv('TENOR_API_URL', 'https://g.tenor.com/v1/search')
-
 # 獲取 FFMPEG 路徑
 def get_ffmpeg_path():
     """根據平台取得 FFMPEG 執行檔路徑"""
@@ -78,9 +74,6 @@ def validate_config():
     
     if not YOUTUBE_API_KEY:
         missing_keys.append("YOUTUBE_API_KEY")
-        
-    if not TENOR_API_KEY:
-        missing_keys.append("TENOR_API_KEY")
         
     if missing_keys:
         logger.warning(f"⚠️ 缺少以下環境變數: {', '.join(missing_keys)}")

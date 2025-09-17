@@ -5,9 +5,7 @@ import json
 import random
 import os
 import logging
-import aiohttp
-import asyncio
-from config import TENOR_API_URL, TENOR_API_KEY, EMOJI_DATA_PATH
+from config import EMOJI_DATA_PATH
 
 class Emoji(commands.Cog):
     def __init__(self, bot):
@@ -28,68 +26,6 @@ class Emoji(commands.Cog):
         except Exception as e:
             self.logger.error(f"載入表情符號數據時發生錯誤：{str(e)}")
             return {"keywords": {}, "gif_categories": {}}
-
-    async def get_random_gif(self, category):
-        """從 Tenor API 獲取隨機 GIF"""
-        if not TENOR_API_KEY:
-            self.logger.warning("未設定 Tenor API Key")
-            return None
-            
-        # 修正 Tenor API v1 參數
-        params = {
-            "q": category,
-            "key": TENOR_API_KEY,
-            "limit": 10,
-            "media_filter": "basic"
-        }
-        
-        # 重試邏輯
-        max_retries = 3
-        retry_delay = 1  # 秒
-        
-        for attempt in range(max_retries):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(TENOR_API_URL, params=params, timeout=10) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            if "results" in data and data["results"]:
-                                gif = random.choice(data["results"])
-                                
-                                # Tenor API v1 格式
-                                media_formats = gif.get("media", [])
-                                if media_formats:
-                                    # 優先選擇 gif 格式
-                                    for media in media_formats:
-                                        if media.get("gif", {}).get("url"):
-                                            return media["gif"]["url"]
-                                else:
-                                    self.logger.warning(f"Tenor API 返回無效格式，類別: {category}")
-                            else:
-                                self.logger.warning(f"Tenor API 返回空結果，類別: {category}")
-                        else:
-                            self.logger.error(f"Tenor API 返回錯誤碼: {response.status}")
-                            # 記錄錯誤詳情
-                            if response.status == 400:
-                                error_text = await response.text()
-                                self.logger.error(f"API 錯誤詳情: {error_text}")
-                            
-                            # 如果是速率限制，等待後重試
-                            if response.status == 429:  # Too Many Requests
-                                if attempt < max_retries - 1:
-                                    await asyncio.sleep(retry_delay * (attempt + 1))
-                                    continue
-                            
-            except asyncio.TimeoutError:
-                self.logger.error(f"Tenor API 請求超時 (嘗試 {attempt+1}/{max_retries})")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-                    continue
-            except Exception as e:
-                self.logger.error(f"獲取 GIF 時發生錯誤: {str(e)}")
-                break
-                
-        return None
 
     def get_recommended_emojis(self, text):
         """根據文本內容推薦表情符號"""
@@ -152,7 +88,7 @@ class Emoji(commands.Cog):
             self.logger.error(f"推薦表情符號時發生錯誤：{str(e)}")
             await interaction.response.send_message("處理請求時發生錯誤，請稍後再試！", ephemeral=True)
 
-    @app_commands.command(name="party_gif", description="獲取隨機派對或情緒相關 GIF")
+    @app_commands.command(name="party_gif", description="獲取隨機派對或情緒相關表情符號")
     @app_commands.choices(category=[
         app_commands.Choice(name="派對", value="party"),
         app_commands.Choice(name="開心", value="happy"),
@@ -164,36 +100,43 @@ class Emoji(commands.Cog):
         app_commands.Choice(name="煙火", value="fireworks")
     ])
     async def party_gif(self, interaction: discord.Interaction, category: str = "party"):
-        """獲取特定類別的 GIF"""
+        """獲取特定類別的表情符號"""
         try:
-            emoji_data = self.load_emoji_data()
+            # 預設的表情符號映射
+            emoji_map = {
+                "party": ["🎉", "🎊", "🥳", "🎈", "🎁", "🍾", "🥂", "🎭", "🎪", "🎵"],
+                "happy": ["😊", "😄", "😃", "😁", "🤗", "😋", "🥰", "😍", "🤩", "✨"],
+                "sad": ["😢", "😭", "😔", "😞", "😩", "💔", "🥺", "😿", "😰", "🌧️"],
+                "angry": ["😡", "😠", "🤬", "💢", "👿", "😤", "🔥", "⚡", "💥", "🌋"],
+                "love": ["❤️", "💕", "💖", "💝", "💗", "💘", "💞", "💓", "🥰", "😘"],
+                "dance": ["💃", "🕺", "🎶", "🎵", "🎤", "🎸", "🥁", "🎺", "🎷", "✨"],
+                "cheers": ["🥂", "🍻", "🍷", "🍾", "🥳", "🎉", "🎊", "🍸", "🥃", "🍹"],
+                "fireworks": ["🎆", "🎇", "✨", "🌟", "⭐", "💫", "🎉", "🎊", "🚀", "💥"]
+            }
             
-            if category not in emoji_data["gif_categories"]:
-                categories = ", ".join(emoji_data["gif_categories"].keys())
+            if category not in emoji_map:
+                categories = ", ".join(emoji_map.keys())
                 await interaction.response.send_message(
                     f"無效的類別！可用類別：{categories}",
                     ephemeral=True
                 )
                 return
             
-            await interaction.response.defer()
+            # 隨機選擇多個表情符號
+            selected_emojis = random.sample(emoji_map[category], min(5, len(emoji_map[category])))
+            emoji_text = " ".join(selected_emojis)
             
-            search_term = random.choice(emoji_data["gif_categories"][category])
-            gif_url = await self.get_random_gif(search_term)
+            embed = discord.Embed(
+                title=f"{category.capitalize()} 表情符號！",
+                description=emoji_text,
+                color=discord.Color.random()
+            )
             
-            if gif_url:
-                embed = discord.Embed(color=discord.Color.random())
-                embed.set_image(url=gif_url)
-                await interaction.followup.send(embed=embed)
-            else:
-                await interaction.followup.send(
-                    "抱歉，無法獲取 GIF 😅\n"
-                    "可能是 API 限制或網路問題，請稍後再試！",
-                    ephemeral=True
-                )
+            await interaction.response.send_message(embed=embed)
+            
         except Exception as e:
-            self.logger.error(f"獲取 GIF 時發生錯誤：{str(e)}")
-            await interaction.followup.send("處理請求時發生錯誤，請稍後再試！", ephemeral=True)
+            self.logger.error(f"獲取表情符號時發生錯誤：{str(e)}")
+            await interaction.response.send_message("處理請求時發生錯誤，請稍後再試！", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message(self, message):
