@@ -13,7 +13,7 @@
    然後編輯 `.env` 檔案，填入你的 API 金鑰：
    - `DISCORD_TOKEN`: Discord 機器人的 Token
    - `YOUTUBE_API_KEY`: YouTube API 金鑰
-   - `TENOR_API_KEY`: Tenor API 金鑰
+
 
 ## 啟動方式
 
@@ -96,7 +96,7 @@ docker-compose up -d
 
 3. **檢查環境變數**
    ```bash
-   docker exec dc_partybot env | grep -E "(DISCORD|YOUTUBE|TENOR)"
+   docker exec dc_partybot env | grep -E "(DISCORD|YOUTUBE)"
    ```
 
 4. **重建容器**

@@ -64,3 +64,10 @@ temp_audio/
 # 安裝錯誤
 pip-log.txt
 pip-delete-this-directory.txt
+
+# 備份檔案
+*.backup
+requirements.txt.backup
+
+# uv 相關檔案
+.uv-cache/

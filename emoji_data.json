@@ -9,11 +9,5 @@
         "舞蹈": ["💃", "🕺", "🎶", "🎵", "🎸"],
         "乾杯": ["🍻", "🥂", "🍺", "🍷", "🥃"],
         "煙火": ["🎆", "✨", "💫", "🎇", "⭐"]
-    },
-    "gif_categories": {
-        "party": ["party", "celebration", "dance party", "disco"],
-        "dance": ["dancing", "dance moves", "party dance"],
-        "cheers": ["cheers", "toast", "drinking celebration"],
-        "fireworks": ["fireworks", "celebration fireworks", "party fireworks"]
     }
 }
