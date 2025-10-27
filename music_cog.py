@@ -579,8 +579,11 @@ class Music(commands.Cog):
             except Exception as e:
                 error_msg = str(e)
                 # 如果已經是我們自定義的異常（DRM 等），直接重新拋出
-                if any(keyword in error_msg for keyword in ["DRM 保護", "地區不可用", "私人影片", "已被刪除", "影片無法播放"]):
+                if any(keyword in error_msg for keyword in ["DRM_PROTECTED", "REGION_BLOCKED", "PRIVATE_VIDEO", "VIDEO_DELETED", "VIDEO_UNAVAILABLE"]):
                     raise e
+                # 也檢查原始的 DRM 錯誤訊息
+                elif "DRM protected" in error_msg:
+                    raise Exception("DRM_PROTECTED: 此影片受到 DRM 保護，無法播放")
                 
                 self.logger.error(
                     f"獲取音訊 URL 時發生未預期錯誤 (嘗試 {retry_count + 1}/{max_retries}): {error_msg}"
