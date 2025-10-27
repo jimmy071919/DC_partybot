@@ -330,10 +330,7 @@ class Music(commands.Cog):
                 if not ctx.author.voice:
                     self.logger.error("用戶不在語音頻道中")
                     try:
-                        if ctx.interaction and not ctx.interaction.response.is_done():
-                            await ctx.followup.send("你必須先加入一個語音頻道！", ephemeral=True)
-                        else:
-                            await ctx.send("你必須先加入一個語音頻道！")
+                        await self._send_response(ctx, "你必須先加入一個語音頻道！", ephemeral=True)
                     except:
                         pass
                     return False
@@ -357,10 +354,7 @@ class Music(commands.Cog):
                             continue
                         else:
                             try:
-                                if ctx.interaction and not ctx.interaction.response.is_done():
-                                    await ctx.followup.send("無法連接到語音頻道，請稍後再試。", ephemeral=True)
-                                else:
-                                    await ctx.send("無法連接到語音頻道，請稍後再試。")
+                                await self._send_response(ctx, "無法連接到語音頻道，請稍後再試。", ephemeral=True)
                             except:
                                 pass
                             return False
@@ -376,10 +370,7 @@ class Music(commands.Cog):
                     continue
                 else:
                     try:
-                        if ctx.interaction and not ctx.interaction.response.is_done():
-                            await ctx.followup.send("發生錯誤，請稍後再試。", ephemeral=True)
-                        else:
-                            await ctx.send("發生錯誤，請稍後再試。")
+                        await self._send_response(ctx, "發生錯誤，請稍後再試。", ephemeral=True)
                     except:
                         pass
                     return False
@@ -545,13 +536,7 @@ class Music(commands.Cog):
                 self.logger.error(f"無法恢復語音連接 (伺服器 ID: {guild_id})")
                 if ctx:
                     try:
-                        if hasattr(ctx, 'interaction') and ctx.interaction and not ctx.interaction.response.is_done():
-                            await ctx.followup.send(
-                                "與語音頻道的連接已丟失，請重新加入並使用 `/play` 指令。",
-                                ephemeral=True,
-                            )
-                        else:
-                            await ctx.send("與語音頻道的連接已丟失，請重新加入並使用 `/play` 指令。")
+                        await self._send_response(ctx, "與語音頻道的連接已丟失，請重新加入並使用 `/play` 指令。", ephemeral=True)
                     except:
                         pass
                 return
@@ -595,10 +580,7 @@ class Music(commands.Cog):
                         color=discord.Color.green(),
                     )
                     try:
-                        if hasattr(ctx, 'interaction') and ctx.interaction and not ctx.interaction.response.is_done():
-                            await ctx.followup.send(embed=embed)
-                        else:
-                            await ctx.send(embed=embed)
+                        await self._send_response(ctx, embed=embed)
                     except:
                         pass
 
@@ -613,13 +595,7 @@ class Music(commands.Cog):
                     self.logger.info(f"跳過無法播放的影片: {next_song['title']}")
                     if ctx:
                         try:
-                            if hasattr(ctx, 'interaction') and ctx.interaction and not ctx.interaction.response.is_done():
-                                await ctx.followup.send(
-                                    f"⚠️ 跳過無法播放的影片：{next_song['title']}\n原因：{error_msg}", 
-                                    ephemeral=True
-                                )
-                            else:
-                                await ctx.send(f"⚠️ 跳過無法播放的影片：{next_song['title']}\n原因：{error_msg}")
+                            await self._send_response(ctx, f"⚠️ 跳過無法播放的影片：{next_song['title']}\n原因：{error_msg}", ephemeral=True)
                         except:
                             pass
                     # 自動播放下一首
@@ -627,12 +603,7 @@ class Music(commands.Cog):
                 else:
                     if ctx:
                         try:
-                            if hasattr(ctx, 'interaction') and ctx.interaction and not ctx.interaction.response.is_done():
-                                await ctx.followup.send(
-                                    f"播放時發生錯誤：{type(e).__name__}: {error_msg}", ephemeral=True
-                                )
-                            else:
-                                await ctx.send(f"播放時發生錯誤：{type(e).__name__}: {error_msg}")
+                            await self._send_response(ctx, f"播放時發生錯誤：{type(e).__name__}: {error_msg}", ephemeral=True)
                         except:
                             pass
                     # 如果出錯，嘗試播放下一首
@@ -649,10 +620,7 @@ class Music(commands.Cog):
                 queue.is_playing = False
                 if ctx:
                     try:
-                        if hasattr(ctx, 'interaction') and ctx.interaction and not ctx.interaction.response.is_done():
-                            await ctx.followup.send("播放完畢！", ephemeral=True)
-                        else:
-                            await ctx.send("播放完畢！")
+                        await self._send_response(ctx, "播放完畢！", ephemeral=True)
                     except:
                         pass
 
@@ -676,7 +644,7 @@ class Music(commands.Cog):
             search_response = await self._search_youtube_with_retry(query)
 
             if not search_response or not search_response.get("items"):
-                await ctx.followup.send("找不到相關影片。", ephemeral=True)
+                await self._send_response(ctx, "找不到相關影片。", ephemeral=True)
                 return
 
             self.logger.info(
@@ -704,7 +672,7 @@ class Music(commands.Cog):
                     continue
 
             if not videos:
-                await ctx.followup.send("找不到可播放的影片。", ephemeral=True)
+                await self._send_response(ctx, "找不到可播放的影片。", ephemeral=True)
                 return
 
             # 創建嵌入式消息顯示搜索結果
@@ -723,7 +691,7 @@ class Music(commands.Cog):
 
             # 創建並發送選擇視圖
             view = SongSelectView(videos, self, ctx)
-            message = await ctx.followup.send(embed=embed, view=view)
+            message = await self._send_response(ctx, embed=embed, view=view)
             view.message = message  # 保存消息引用以便稍後更新
 
         except discord.errors.NotFound:
@@ -731,9 +699,33 @@ class Music(commands.Cog):
         except Exception as e:
             self.logger.error(f"播放指令發生錯誤: {str(e)}")
             try:
-                await ctx.followup.send(f"發生錯誤：{str(e)}", ephemeral=True)
+                await self._send_response(ctx, f"發生錯誤：{str(e)}", ephemeral=True)
             except discord.errors.NotFound:
                 self.logger.error("無法發送錯誤回應，互動已過期")
+
+    async def _send_response(self, ctx, content=None, *, embed=None, view=None, ephemeral=False):
+        """統一的回應方法，處理不同類型的 context"""
+        try:
+            # 如果是通過 slash command 調用的（有 interaction）
+            if hasattr(ctx, 'interaction') and ctx.interaction:
+                if ctx.interaction.response.is_done():
+                    # 如果已經回應過，使用 followup
+                    return await ctx.interaction.followup.send(
+                        content=content, embed=embed, view=view, ephemeral=ephemeral
+                    )
+                else:
+                    # 如果還沒回應，使用 response
+                    return await ctx.interaction.response.send_message(
+                        content=content, embed=embed, view=view, ephemeral=ephemeral
+                    )
+            else:
+                # 如果是傳統指令或沒有 interaction，使用 send
+                return await ctx.send(content=content, embed=embed, view=view)
+        except discord.errors.NotFound:
+            # 如果所有方法都失敗，嘗試直接在頻道發送
+            if ctx.channel:
+                return await ctx.channel.send(content=content, embed=embed, view=view)
+            raise
 
     @commands.hybrid_command(name="skip", description="跳過當前歌曲")
     async def skip(self, ctx: commands.Context):
