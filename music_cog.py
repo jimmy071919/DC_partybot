@@ -83,6 +83,7 @@ class SongSelectView(discord.ui.View):
         self.ctx = ctx
         self.selected_song = None
         self.logger = logging.getLogger(__name__)
+        self.message = None  # 用於存儲消息引用
 
         # 只顯示前5個結果的按鈕
         for i in range(min(5, len(videos))):
@@ -92,15 +93,45 @@ class SongSelectView(discord.ui.View):
             button.callback = self.create_callback(i)
             self.add_item(button)
 
+    async def on_timeout(self):
+        """處理超時情況"""
+        try:
+            # 禁用所有按鈕
+            for item in self.children:
+                item.disabled = True
+            
+            # 更新消息以顯示超時狀態
+            if hasattr(self, "message") and self.message:
+                try:
+                    embed = discord.Embed(
+                        title="⏰ 選擇超時",
+                        description="歌曲選擇已超時，請重新使用播放指令。",
+                        color=discord.Color.orange(),
+                    )
+                    await self.message.edit(embed=embed, view=self)
+                except Exception as e:
+                    self.logger.error(f"處理超時時編輯消息失敗: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"處理超時時發生錯誤: {str(e)}")
+
+    def set_message(self, message):
+        """設置消息引用"""
+        self.message = message
+
     def create_callback(self, index: int):
         async def button_callback(interaction: discord.Interaction):
             try:
+                # 檢查是否是正確的用戶
                 if interaction.user != self.ctx.author:
-                    await interaction.response.send_message(
-                        "只有發起播放的用戶可以選擇歌曲！", ephemeral=True
-                    )
+                    try:
+                        await interaction.response.send_message(
+                            "只有發起播放的用戶可以選擇歌曲！", ephemeral=True
+                        )
+                    except discord.errors.NotFound:
+                        pass  # 互動已過期，忽略
                     return
 
+                # 選擇歌曲並停止 View
                 self.selected_song = self.videos[index]
                 self.stop()
 
@@ -108,16 +139,26 @@ class SongSelectView(discord.ui.View):
                 for item in self.children:
                     item.disabled = True
                 
-                # 回應互動
+                # 嘗試回應互動並更新視圖
+                interaction_handled = False
                 try:
-                    await interaction.response.edit_message(view=self)
+                    if not interaction.response.is_done():
+                        await interaction.response.edit_message(view=self)
+                        interaction_handled = True
                 except discord.errors.NotFound:
                     self.logger.warning("互動已過期，無法編輯消息")
+                except Exception as e:
+                    self.logger.error(f"編輯消息時發生錯誤: {str(e)}")
 
-                # 獲取佇列
+                # 如果無法通過 interaction 更新，嘗試直接編輯消息
+                if not interaction_handled and hasattr(self, "message") and self.message:
+                    try:
+                        await self.message.edit(view=self)
+                    except Exception as e:
+                        self.logger.error(f"直接編輯消息時發生錯誤: {str(e)}")
+
+                # 獲取佇列並添加歌曲
                 queue = self.cog.get_queue(interaction.guild.id)
-
-                # 添加到佇列
                 queue.add(self.selected_song)
 
                 # 如果沒有正在播放，則開始播放
@@ -130,30 +171,38 @@ class SongSelectView(discord.ui.View):
                         description=self.selected_song["title"],
                         color=discord.Color.green(),
                     )
-                    try:
-                        await interaction.followup.send(embed=embed)
-                    except discord.errors.NotFound:
-                        # 如果 followup 失敗，嘗試在原頻道發送
-                        if self.ctx and self.ctx.channel:
+                    
+                    # 嘗試多種方式發送消息
+                    message_sent = False
+                    
+                    # 方法1: 使用 followup（如果互動仍有效）
+                    if interaction_handled:
+                        try:
+                            await interaction.followup.send(embed=embed, ephemeral=True)
+                            message_sent = True
+                        except discord.errors.NotFound:
+                            pass
+                    
+                    # 方法2: 直接在頻道發送
+                    if not message_sent and self.ctx and self.ctx.channel:
+                        try:
                             await self.ctx.channel.send(embed=embed)
+                            message_sent = True
+                        except Exception as e:
+                            self.logger.error(f"在頻道發送消息時發生錯誤: {str(e)}")
+
             except Exception as e:
                 self.cog.logger.error(f"按鈕回調處理時發生錯誤: {str(e)}")
+                # 嘗試發送錯誤消息，但不要讓錯誤阻塞
                 try:
-                    await interaction.response.send_message(
-                        "處理您的選擇時發生錯誤，請重試。", ephemeral=True
-                    )
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(
+                            "處理您的選擇時發生錯誤，請重試。", ephemeral=True
+                        )
                 except:
                     pass
 
         return button_callback
-
-    async def on_timeout(self):
-        # 禁用所有按鈕
-        for item in self.children:
-            item.disabled = True
-        # 注意：這裡需要一個有效的 interaction 來更新消息
-        if hasattr(self, "message"):
-            await self.message.edit(view=self)
 
 
 class Music(commands.Cog):
@@ -324,14 +373,17 @@ class Music(commands.Cog):
             if hasattr(ctx, 'interaction') and ctx.interaction:
                 if ctx.interaction.response.is_done():
                     # 如果已經回應過，使用 followup
-                    return await ctx.interaction.followup.send(
-                        content=content, embed=embed, view=view, ephemeral=ephemeral
+                    message = await ctx.interaction.followup.send(
+                        content=content, embed=embed, view=view, ephemeral=ephemeral, wait=True
                     )
+                    return message
                 else:
                     # 如果還沒回應，使用 response
-                    return await ctx.interaction.response.send_message(
+                    await ctx.interaction.response.send_message(
                         content=content, embed=embed, view=view, ephemeral=ephemeral
                     )
+                    # 獲取原始消息
+                    return await ctx.interaction.original_response()
             else:
                 # 如果是傳統指令或沒有 interaction，使用 send
                 return await ctx.send(content=content, embed=embed, view=view)
