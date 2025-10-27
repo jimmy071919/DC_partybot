@@ -1,26 +1,24 @@
 # Docker 部署指南
 
+# Docker 部署指南
+
 ## 前置準備
 
-1. **確保 Docker 已安裝**
-   - Docker Desktop（Windows/Mac）
-   - Docker Engine（Linux）
+1. **安裝 Docker**
+   - 下載並安裝 [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
-2. **準備環境變數檔案**
-   ```bash
-   cp .env.example .env
+2. **設定環境變數**
+   - 建立 `.env` 檔案並填入以下內容：
    ```
-   然後編輯 `.env` 檔案，填入你的 API 金鑰：
-   - `DISCORD_TOKEN`: Discord 機器人的 Token
-   - `YOUTUBE_API_KEY`: YouTube API 金鑰
+   DISCORD_TOKEN=你的Discord機器人Token
+   YOUTUBE_API_KEY=你的YouTube_API金鑰
+   COMMAND_PREFIX=!
+   ```
 
-
-## 啟動方式
-
-### 方式一：使用 Docker Compose（推薦）
+## 快速啟動
 
 ```bash
-# 構建並啟動容器
+# 建置並啟動
 docker-compose up -d
 
 # 查看日誌
@@ -30,24 +28,20 @@ docker-compose logs -f discord-bot
 docker-compose down
 ```
 
-### 方式二：使用 Docker 指令
+## 基本指令
 
 ```bash
-# 構建映像
-docker build -t dc_partybot .
+# 重新建置
+docker-compose build
 
-# 運行容器
-docker run -d \
-  --name dc_partybot \
-  --env-file .env \
-  -v ./data:/app/data \
-  -v ./discord_bot.log:/app/discord_bot.log \
-  -v ./youtube.cookies:/app/youtube.cookies \
-  --restart unless-stopped \
-  dc_partybot
+# 重新啟動
+docker-compose restart
+
+# 檢查狀態
+docker-compose ps
 ```
 
-## 管理指令
+就這麼簡單！機器人現在應該在 Docker 容器中運行了。
 
 ```bash
 # 查看容器狀態

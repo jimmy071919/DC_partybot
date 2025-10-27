@@ -1,53 +1,35 @@
-# Git 檔案
-.git
-.gitignore
-README.md
-
-# Python 檔案
+# Python 相關
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env
-pip-log.txt
-pip-delete-this-directory.txt
-.tox
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
+.venv/
+venv/
+
+# Git 相關
 .git
-.mypy_cache
-.pytest_cache
-.hypothesis
+.gitignore
 
 # 環境檔案
 .env
 
-# Docker 檔案
-Dockerfile*
-docker-compose*
-.dockerignore
-
 # IDE 檔案
 .vscode/
 .idea/
-*.swp
-*.swo
 
-# OS 檔案
-.DS_Store
-Thumbs.db
+# 日誌檔案
+logs/
 
 # 暫存檔案
 *.tmp
 *.temp
 
-# 文檔檔案
+# 文檔
 *.md
+
+# OS 檔案
+.DS_Store
+Thumbs.db
 !README.md
 
 # 部署相關檔案
