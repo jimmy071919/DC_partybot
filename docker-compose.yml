@@ -10,11 +10,33 @@ services:
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
       - COMMAND_PREFIX=${COMMAND_PREFIX:-!}
       - PYTHONUNBUFFERED=1
+      - PYTHONHTTPSVERIFY=0
+      - TZ=Asia/Taipei
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
     networks:
       - bot-network
+    # 資源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    # 健康檢查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 日誌配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   bot-network:

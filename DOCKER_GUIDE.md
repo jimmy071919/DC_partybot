@@ -8,7 +8,11 @@
    - 下載並安裝 [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 2. **設定環境變數**
-   - 建立 `.env` 檔案並填入以下內容：
+   - 複製範例環境檔案：
+   ```bash
+   cp .env.example .env
+   ```
+   - 編輯 `.env` 檔案，填入以下內容：
    ```
    DISCORD_TOKEN=你的Discord機器人Token
    YOUTUBE_API_KEY=你的YouTube_API金鑰
@@ -39,9 +43,42 @@ docker-compose restart
 
 # 檢查狀態
 docker-compose ps
+
+# 查看即時日誌
+docker-compose logs -f
+
+# 進入容器（除錯用）
+docker-compose exec discord-bot /bin/bash
 ```
 
-就這麼簡單！機器人現在應該在 Docker 容器中運行了。
+## 故障排除
+
+### 常見問題
+
+1. **機器人無法啟動**
+   - 檢查 `.env` 檔案是否正確設定
+   - 確認 Discord Token 和 YouTube API Key 有效
+
+2. **音樂播放問題**
+   - 容器已包含 FFmpeg，本地環境的 FFmpeg 錯誤不影響 Docker 部署
+
+3. **查看詳細錯誤**
+   ```bash
+   docker-compose logs discord-bot
+   ```
+
+## 檔案結構
+
+```
+.
+├── Dockerfile          # Docker 映像建置檔案
+├── docker-compose.yml  # Docker Compose 配置檔案
+├── .dockerignore       # Docker 忽略檔案清單
+├── .env.example        # 環境變數範例檔案
+└── DOCKER_GUIDE.md     # 本檔案
+```
+
+就這麼簡單！機器人現在應該在 Docker 容器中順利運行了。
 
 ```bash
 # 查看容器狀態

@@ -30,6 +30,10 @@ logs/
 # OS 檔案
 .DS_Store
 Thumbs.db
+
+# Docker 管理檔案
+Makefile
+docker.bat
 !README.md
 
 # 部署相關檔案

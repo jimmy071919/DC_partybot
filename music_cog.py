@@ -3,9 +3,7 @@ import logging
 import asyncio
 import discord
 from discord.ext import commands, tasks
-import tempfile
 import os
-import base64
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from collections import defaultdict
@@ -319,6 +317,30 @@ class Music(commands.Cog):
         """獲取或創建伺服器的音樂佇列"""
         return self.queues[guild_id]
 
+    async def _send_response(self, ctx, content=None, *, embed=None, view=None, ephemeral=False):
+        """統一的回應方法，處理不同類型的 context"""
+        try:
+            # 如果是通過 slash command 調用的（有 interaction）
+            if hasattr(ctx, 'interaction') and ctx.interaction:
+                if ctx.interaction.response.is_done():
+                    # 如果已經回應過，使用 followup
+                    return await ctx.interaction.followup.send(
+                        content=content, embed=embed, view=view, ephemeral=ephemeral
+                    )
+                else:
+                    # 如果還沒回應，使用 response
+                    return await ctx.interaction.response.send_message(
+                        content=content, embed=embed, view=view, ephemeral=ephemeral
+                    )
+            else:
+                # 如果是傳統指令或沒有 interaction，使用 send
+                return await ctx.send(content=content, embed=embed, view=view)
+        except discord.errors.NotFound:
+            # 如果所有方法都失敗，嘗試直接在頻道發送
+            if ctx.channel:
+                return await ctx.channel.send(content=content, embed=embed, view=view)
+            raise
+
     async def ensure_voice_connected(self, ctx) -> bool:
         """確保語音連接成功建立"""
         retry_count = 0
@@ -455,21 +477,26 @@ class Music(commands.Cog):
                     f"獲取音訊 URL 時發生錯誤 (嘗試 {retry_count + 1}/{max_retries}): {error_msg}"
                 )
                 
-                # 檢查是否為 DRM 保護錯誤
-                if "DRM protected" in error_msg:
-                    raise Exception(f"此影片受到 DRM 保護，無法播放: {error_msg}")
+                # 檢查是否為不可重試的錯誤（DRM 保護、地區限制等）
+                if any(keyword in error_msg for keyword in ["DRM protected", "not available", "blocked", "private video", "deleted"]):
+                    if "DRM protected" in error_msg:
+                        raise Exception(f"此影片受到 DRM 保護，無法播放")
+                    elif "not available" in error_msg.lower() or "blocked" in error_msg.lower():
+                        raise Exception(f"此影片在您的地區不可用")
+                    elif "private video" in error_msg.lower():
+                        raise Exception(f"此影片為私人影片，無法播放")
+                    elif "deleted" in error_msg.lower():
+                        raise Exception(f"此影片已被刪除")
+                    else:
+                        raise Exception(f"影片無法播放: {error_msg}")
                 
-                # 檢查是否為地區限制
-                if "not available" in error_msg.lower() or "blocked" in error_msg.lower():
-                    raise Exception(f"此影片在您的地區不可用: {error_msg}")
-                
+                # 對於其他錯誤，進行重試
                 retry_count += 1
                 if retry_count < max_retries:
-                    # 嘗試更新 yt-dlp
+                    # 只在第一次重試時嘗試更新 yt-dlp
                     if retry_count == 1:
                         try:
                             import subprocess
-
                             subprocess.run(
                                 ["pip", "install", "--upgrade", "yt-dlp"],
                                 capture_output=True,
@@ -478,20 +505,25 @@ class Music(commands.Cog):
                             self.logger.info("已嘗試更新 yt-dlp")
                         except:
                             pass
-                    await asyncio.sleep(2)  # 增加等待時間
+                    await asyncio.sleep(2)  # 等待後重試
                     continue
                 else:
                     raise Exception(f"無法獲取音訊 URL: {error_msg}")
             except Exception as e:
+                error_msg = str(e)
+                # 如果已經是我們自定義的異常（DRM 等），直接重新拋出
+                if any(keyword in error_msg for keyword in ["DRM 保護", "地區不可用", "私人影片", "已被刪除", "影片無法播放"]):
+                    raise e
+                
                 self.logger.error(
-                    f"獲取音訊 URL 時發生錯誤 (嘗試 {retry_count + 1}/{max_retries}): {str(e)}"
+                    f"獲取音訊 URL 時發生未預期錯誤 (嘗試 {retry_count + 1}/{max_retries}): {error_msg}"
                 )
                 retry_count += 1
                 if retry_count < max_retries:
                     await asyncio.sleep(2)  # 增加等待時間
                     continue
                 else:
-                    raise Exception(f"無法獲取音訊 URL: {str(e)}")
+                    raise Exception(f"無法獲取音訊 URL: {error_msg}")
 
         return None
 
@@ -590,8 +622,11 @@ class Music(commands.Cog):
                     f"處理下一首歌曲時發生錯誤: {type(e).__name__}: {error_msg}"
                 )
                 
-                # 檢查是否是 DRM 保護或其他播放限制
-                if "DRM protected" in error_msg or "not available" in error_msg.lower():
+                # 檢查是否是不可播放的影片（DRM 保護、地區限制等）
+                if any(keyword in error_msg for keyword in [
+                    "DRM 保護", "地區不可用", "私人影片", "已被刪除", "影片無法播放",
+                    "DRM protected", "not available", "private video", "deleted"
+                ]):
                     self.logger.info(f"跳過無法播放的影片: {next_song['title']}")
                     if ctx:
                         try:
@@ -703,30 +738,6 @@ class Music(commands.Cog):
             except discord.errors.NotFound:
                 self.logger.error("無法發送錯誤回應，互動已過期")
 
-    async def _send_response(self, ctx, content=None, *, embed=None, view=None, ephemeral=False):
-        """統一的回應方法，處理不同類型的 context"""
-        try:
-            # 如果是通過 slash command 調用的（有 interaction）
-            if hasattr(ctx, 'interaction') and ctx.interaction:
-                if ctx.interaction.response.is_done():
-                    # 如果已經回應過，使用 followup
-                    return await ctx.interaction.followup.send(
-                        content=content, embed=embed, view=view, ephemeral=ephemeral
-                    )
-                else:
-                    # 如果還沒回應，使用 response
-                    return await ctx.interaction.response.send_message(
-                        content=content, embed=embed, view=view, ephemeral=ephemeral
-                    )
-            else:
-                # 如果是傳統指令或沒有 interaction，使用 send
-                return await ctx.send(content=content, embed=embed, view=view)
-        except discord.errors.NotFound:
-            # 如果所有方法都失敗，嘗試直接在頻道發送
-            if ctx.channel:
-                return await ctx.channel.send(content=content, embed=embed, view=view)
-            raise
-
     @commands.hybrid_command(name="skip", description="跳過當前歌曲")
     async def skip(self, ctx: commands.Context):
         """跳過當前歌曲"""
@@ -735,9 +746,9 @@ class Music(commands.Cog):
         queue = self.get_queue(ctx.guild.id)
         if queue.voice_client and queue.voice_client.is_playing():
             queue.voice_client.stop()
-            await ctx.reply("已跳過當前歌曲！", ephemeral=True)
+            await self._send_response(ctx, "已跳過當前歌曲！", ephemeral=True)
         else:
-            await ctx.reply("目前沒有正在播放的歌曲。", ephemeral=True)
+            await self._send_response(ctx, "目前沒有正在播放的歌曲。", ephemeral=True)
 
     @commands.hybrid_command(name="loop", description="切換循環播放模式")
     async def loop(self, ctx: commands.Context):
@@ -746,9 +757,7 @@ class Music(commands.Cog):
 
         queue = self.get_queue(ctx.guild.id)
         queue.loop = not queue.loop
-        await ctx.reply(
-            f"循環播放模式已{'開啟' if queue.loop else '關閉'}！", ephemeral=True
-        )
+        await self._send_response(ctx, f"循環播放模式已{'開啟' if queue.loop else '關閉'}！", ephemeral=True)
 
     @commands.hybrid_command(name="stop", description="停止播放並清空佇列")
     async def stop(self, ctx: commands.Context):
@@ -771,9 +780,9 @@ class Music(commands.Cog):
                 # 無論如何都清空佇列
                 queue.clear()
 
-            await ctx.reply("已停止播放並清空佇列！", ephemeral=True)
+            await self._send_response(ctx, "已停止播放並清空佇列！", ephemeral=True)
         else:
-            await ctx.reply("機器人不在語音頻道中。", ephemeral=True)
+            await self._send_response(ctx, "機器人不在語音頻道中。", ephemeral=True)
 
     @commands.hybrid_command(name="leave", description="讓機器人離開語音頻道")
     async def leave_voice(self, ctx: commands.Context):
@@ -785,7 +794,7 @@ class Music(commands.Cog):
 
         # 檢查機器人是否在語音頻道中
         if not (queue.voice_client or (guild and guild.voice_client)):
-            await ctx.reply("機器人不在語音頻道中。", ephemeral=True)
+            await self._send_response(ctx, "機器人不在語音頻道中。", ephemeral=True)
             return
 
         try:
@@ -804,10 +813,10 @@ class Music(commands.Cog):
             queue.is_playing = False
             queue.voice_client = None
 
-            await ctx.reply("已離開語音頻道！佇列保留。", ephemeral=True)
+            await self._send_response(ctx, "已離開語音頻道！佇列保留。", ephemeral=True)
         except Exception as e:
             self.logger.error(f"離開語音頻道時發生錯誤: {str(e)}")
-            await ctx.reply(f"離開語音頻道時發生錯誤，請稍後再試。", ephemeral=True)
+            await self._send_response(ctx, f"離開語音頻道時發生錯誤，請稍後再試。", ephemeral=True)
 
     @commands.hybrid_command(name="queue", description="查看當前的歌曲佇列")
     async def show_queue(self, ctx: commands.Context):
@@ -816,7 +825,7 @@ class Music(commands.Cog):
 
         queue = self.get_queue(ctx.guild.id)
         if not queue.is_playing and not queue.queue:
-            await ctx.reply("目前沒有歌曲在佇列中。", ephemeral=True)
+            await self._send_response(ctx, "目前沒有歌曲在佇列中。", ephemeral=True)
             return
 
         # 建立佇列資訊嵌入訊息
@@ -842,7 +851,7 @@ class Music(commands.Cog):
                 text=f"使用 /skip 跳過當前歌曲 | /stop 停止播放 | /leave 離開頻道"
             )
 
-        await ctx.reply(embed=embed)
+        await self._send_response(ctx, embed=embed)
 
     @tasks.loop(seconds=30)
     async def check_voice_activity(self):
