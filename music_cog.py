@@ -222,7 +222,7 @@ class Music(commands.Cog):
 
         # 設置 yt-dlp 選項 - 優化音訊提取和錯誤處理
         self.ydl_opts = {
-            "format": "bestaudio/best",
+            "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=720]",
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
@@ -236,7 +236,15 @@ class Music(commands.Cog):
             "source_address": "0.0.0.0",  # 綁定到 IPv4
             "prefer_insecure": True,  # 強制使用 HTTP 而非 HTTPS（如果可能）
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            # YouTube 特定設定
+            "extractor_args": {
+                "youtube": {
+                    "skip": ["dash", "hls"],  # 跳過 DASH 和 HLS 格式，優先使用傳統格式
+                    "player_skip": ["js"],    # 跳過 JavaScript 播放器
+                    "player_client": ["android", "web"],  # 使用 Android 和 Web 客戶端
+                }
             },
             "postprocessors": [
                 {
@@ -509,7 +517,13 @@ class Music(commands.Cog):
                 if "youtube.com" in url or "youtu.be" in url:
                     current_opts.update(
                         {
-                            "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
+                            "extractor_args": {
+                                "youtube": {
+                                    "skip": ["dash", "hls"],
+                                    "player_skip": ["js"],
+                                    "player_client": ["android", "web"],
+                                }
+                            },
                             "force_generic_extractor": False,
                         }
                     )
@@ -532,15 +546,16 @@ class Music(commands.Cog):
                 # 檢查是否為不可重試的錯誤（DRM 保護、地區限制等）
                 if any(keyword in error_msg for keyword in ["DRM protected", "not available", "blocked", "private video", "deleted"]):
                     if "DRM protected" in error_msg:
-                        raise Exception(f"此影片受到 DRM 保護，無法播放")
+                        # 對於 DRM 保護的影片，標記為需要跳過
+                        raise Exception(f"DRM_PROTECTED: 此影片受到 DRM 保護，無法播放")
                     elif "not available" in error_msg.lower() or "blocked" in error_msg.lower():
-                        raise Exception(f"此影片在您的地區不可用")
+                        raise Exception(f"REGION_BLOCKED: 此影片在您的地區不可用")
                     elif "private video" in error_msg.lower():
-                        raise Exception(f"此影片為私人影片，無法播放")
+                        raise Exception(f"PRIVATE_VIDEO: 此影片為私人影片，無法播放")
                     elif "deleted" in error_msg.lower():
-                        raise Exception(f"此影片已被刪除")
+                        raise Exception(f"VIDEO_DELETED: 此影片已被刪除")
                     else:
-                        raise Exception(f"影片無法播放: {error_msg}")
+                        raise Exception(f"VIDEO_UNAVAILABLE: 影片無法播放: {error_msg}")
                 
                 # 對於其他錯誤，進行重試
                 retry_count += 1
@@ -676,16 +691,70 @@ class Music(commands.Cog):
                 
                 # 檢查是否是不可播放的影片（DRM 保護、地區限制等）
                 if any(keyword in error_msg for keyword in [
-                    "DRM 保護", "地區不可用", "私人影片", "已被刪除", "影片無法播放",
+                    "DRM_PROTECTED", "REGION_BLOCKED", "PRIVATE_VIDEO", "VIDEO_DELETED", "VIDEO_UNAVAILABLE",
                     "DRM protected", "not available", "private video", "deleted"
                 ]):
-                    self.logger.info(f"跳過無法播放的影片: {next_song['title']}")
+                    self.logger.info(f"影片無法播放，嘗試搜尋替代選項: {next_song['title']}")
                     if ctx:
                         try:
-                            await self._send_response(ctx, f"⚠️ 跳過無法播放的影片：{next_song['title']}\n原因：{error_msg}", ephemeral=True)
+                            await self._send_response(ctx, f"⚠️ 原影片無法播放，正在搜尋替代選項：{next_song['title']}", ephemeral=True)
                         except:
                             pass
-                    # 自動播放下一首
+                    
+                    # 嘗試搜尋同名的替代影片
+                    try:
+                        # 提取原始搜尋關鍵字（移除常見的影片標記）
+                        search_terms = next_song['title']
+                        # 移除常見的 YouTube 標記
+                        for remove_term in ['M/V', 'MV', 'Official Video', 'Official Music Video', 'lyrics', 'Lyrics']:
+                            search_terms = search_terms.replace(remove_term, '').strip()
+                        
+                        # 搜尋替代影片
+                        search_results = await self._search_youtube_with_retry(f"{search_terms} audio")
+                        if search_results:
+                            # 找到替代影片，加入到佇列前面
+                            alternative_found = False
+                            for video in search_results[:3]:  # 嘗試前3個結果
+                                if video['id'] != next_song['url'].split('=')[-1]:  # 避免選到同一個影片
+                                    video_info = {
+                                        'title': video['title'],
+                                        'url': f"https://www.youtube.com/watch?v={video['id']}",
+                                        'duration': video.get('duration', '未知'),
+                                        'requester': '系統自動搜尋'
+                                    }
+                                    # 將替代影片插入佇列最前面
+                                    queue.queue.insert(0, video_info)
+                                    self.logger.info(f"找到替代影片: {video['title']}")
+                                    if ctx:
+                                        try:
+                                            await self._send_response(ctx, f"✅ 找到替代影片：{video['title']}", ephemeral=True)
+                                        except:
+                                            pass
+                                    alternative_found = True
+                                    break
+                            
+                            if not alternative_found:
+                                if ctx:
+                                    try:
+                                        await self._send_response(ctx, f"❌ 未找到可播放的替代影片", ephemeral=True)
+                                    except:
+                                        pass
+                        else:
+                            if ctx:
+                                try:
+                                    await self._send_response(ctx, f"❌ 搜尋替代影片失敗", ephemeral=True)
+                                except:
+                                    pass
+                    except Exception as search_error:
+                        self.logger.error(f"搜尋替代影片時發生錯誤: {search_error}")
+                        if ctx:
+                            try:
+                                await self._send_response(ctx, f"❌ 搜尋替代影片時發生錯誤", ephemeral=True)
+                            except:
+                                pass
+                    
+                    # 繼續播放下一首（可能是新找到的替代影片）
+                    await asyncio.sleep(1)  # 短暫延遲
                     await self.play_next(guild_id, ctx)
                 else:
                     if ctx:

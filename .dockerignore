@@ -34,7 +34,7 @@ Thumbs.db
 # Docker 管理檔案
 Makefile
 docker.bat
-!README.md
+*.ps1
 
 # 部署相關檔案
 railway.toml

@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
     git \
+    wget \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -18,11 +19,13 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=utf-8
 ENV PYTHONHTTPSVERIFY=0
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV YT_DLP_SSL_NO_VERIFY=1
 
 # 複製 pyproject.toml 並安裝依賴
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir . \
+    && pip install --no-cache-dir --upgrade yt-dlp
 
 # 複製應用程式碼
 COPY . .
@@ -31,12 +34,14 @@ COPY . .
 RUN mkdir -p data logs \
     && chmod 755 data logs
 
-# 驗證 FFmpeg 安裝
-RUN ffmpeg -version > /dev/null 2>&1 && echo "FFmpeg installed successfully"
+# 驗證安裝
+RUN ffmpeg -version > /dev/null 2>&1 && echo "FFmpeg installed successfully" \
+    && yt-dlp --version > /dev/null 2>&1 && echo "yt-dlp installed successfully" \
+    && python -c "import discord; print('discord.py version:', discord.__version__)"
 
 # 健康檢查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import sys; import os; sys.exit(0 if os.path.exists('/app/main.py') else 1)"
 
 # 運行應用程式
 CMD ["python", "main.py"]
